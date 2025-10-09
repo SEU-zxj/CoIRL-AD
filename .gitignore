@@ -138,8 +138,6 @@ dmypy.json
 ckpts
 
 test/
-assets/
-tools/CLIP
 
 *.tar.gz
 *.tar
