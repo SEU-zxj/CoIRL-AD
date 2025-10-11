@@ -8,8 +8,8 @@
 <a href="https://github.com/TANGXTONG1">Yuanrong Tang</a>, 
 <a href="https://openreview.net/profile?id=~Gengyuan_Liu1">Gengyuan Liu</a>, 
 
-<a href="https://scholar.google.com/citations?user=_Wrx_yEAAAAJ">Bokui Chen</a>‡ and 
-<a href="https://scholar.google.com/citations?user=AktmI14AAAAJ">Jiangtao Gong</a>‡.
+<a href="https://www.sigs.tsinghua.edu.cn/cbk/main.htm">Bokui Chen</a>‡ and 
+<a href="https://air.tsinghua.edu.cn/en/info/1046/1477.htm">Jiangtao Gong</a>‡.
 <div>
 *: Equal contribution.
 ‡: Corresponding authors.
@@ -162,14 +162,14 @@ You can also evaluate [LAW](https://github.com/BraveGroup/LAW), just change the 
 ## Results and Checkpoints
 Here, we provide the ckpt and results of models we used in our paper.
 |  Model   | training set | training epoch | ckpt epoch id | ckpt link  | results link |
-|  ----  | ---- | ----  | ---- | ----  | ---- |
+|  ----  | ---- | ---- | ---- | ---- | ---- |
 | CoIRL-AD  |  nuscenes  | 24 | 21 | [link](https://huggingface.co/Student-Xiaoji/CoIRL-AD-models/blob/main/ckpts/CoIRL-AD/epoch_21.pth) | [link](https://huggingface.co/Student-Xiaoji/CoIRL-AD-models/blob/main/ckpts/CoIRL-AD/results.pkl) |
 | CoIRL-AD  |  nuscenes-singapore | 24 | 13 | [link](https://huggingface.co/Student-Xiaoji/CoIRL-AD-models/blob/main/ckpts/CoIRL-AD-sinapore/epoch_13.pth) | None |
 | LAW  |  nuscenes  | 24 | 15 | [link](https://huggingface.co/Student-Xiaoji/CoIRL-AD-models/blob/main/ckpts/LAW/epoch_15.pth) | [link](https://huggingface.co/Student-Xiaoji/CoIRL-AD-models/blob/main/ckpts/LAW/results.pkl) |
 | LAW  |  nuscenes-singapore | 24 | 13 | [link](https://huggingface.co/Student-Xiaoji/CoIRL-AD-models/blob/main/ckpts/LAW-sinapore/epoch_13.pth) | None |
 
 The metrics of the four model above is as follows, the models trained on nuscenes singapore are evaluated on nuscenes-boston evaluation spilt set:
-|  Model   | L2 (1s)  | L2 (2s)  | L2 (3s)  | L2 (avg)  | Col (1s)  | Col (2s)  | Col (3s)  | Col (avg)  | metrics file | 
+|  Model   | L2 (1s)  | L2 (2s)  | L2 (3s)  | L2 (avg)  | Col% (1s)  | Col% (2s)  | Col% (3s)  | Col% (avg)  | metrics file | 
 |  ----  | ----  |  ----  | ----  |  ----  | ----  |  ----  | ----  |  ----  | ---- |
 | CoIRL-AD  | 0.288 | 0.587 | 1.00 | 0.625 | 0.059 | 0.103 | 0.368 | 0.177 | [link](https://huggingface.co/Student-Xiaoji/CoIRL-AD-models/blob/main/ckpts/CoIRL-AD/eval_metrics.xlsx)
 | CoIRL-AD (singapore)  | 0.326 | 0.653 | 1.127 | 0.702 | 0.038 | 0.152 | 0.463 | 0.218 | [link](https://huggingface.co/Student-Xiaoji/CoIRL-AD-models/blob/main/ckpts/CoIRL-AD-sinapore/eval_metrics.xlsx)
