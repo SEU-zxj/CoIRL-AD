@@ -34,39 +34,54 @@ The framework enhances generalization and robustness in end-to-end autonomous dr
 - **[2024.11.25]** Porject start!
 
 ## Installation
+I really hate spend so much time on configuring environments, so here I have tried my best to shorten the configure steps.
+
+And I also verified these steps after I finish the project, hope that saves your time :)
+
+If you encountered any questions, feel free to raise an issue :)
+
 1. create a conda virtual environment and activate it
 ```
 conda create -n coirl python=3.8 -y # '-n' => '--name', '-y' => '--yes'
 conda activate coirl
 ```
-2. install torch and torch-related packages
+
+2. package installation in one line (if you succeed, go to 4.)
 ```
-pip install torch==1.9.1+cu111 torchvision==0.10.1+cu111 torchaudio==0.9.1 -f https://download.pytorch.org/whl/torch_stable.html
+# cd CoIRL-AD (make sure the working directory is this repo)
+bash ./setup_assistant.sh
 ```
-3. install mm-related packages
+
+3. package installation step by step (if you execute 2 successfully, skip this)
+
+execute the following steps one by one:
 ```
-pip install mmcv-full==1.4.0
-pip install mmdet==2.14.0
-pip install mmsegmentation==0.14.1
-pip install timm
-```
-4. clone and build mmdet3d
-```
-git clone https://github.com/open-mmlab/mmdetection3d.git
-cd /path/to/mmdetection3d
-git checkout -f v0.17.1
-python setup.py develop
-```
-5. install nuscenes-related packages
-```
-pip install nuscenes-devkit==1.1.9
-pip install yapf==0.40.1
-```
-6. install remain require packages
-```
+# step 0: install packages from requirements.txt
 pip install -r requirements.txt
+
+# step 1: install torch
+# make sure CUDA-11.1 has been installed, and set `export CUDA_HOME=/usr/local/cuda-11.1`
+pip install torch==1.9.0+cu111 torchvision==0.10.0+cu111 torchaudio==0.9.0 -f https://download.pytorch.org/whl/torch_stable.html
+
+# step 2: install mm-related packages
+pip install mmcv-full==1.4.0 -f https://download.openmmlab.com/mmcv/dist/cu111/torch1.9.0/index.html
+python -c "from mmcv.ops import nms; print('✅ mmcv ops imported OK')"
+pip install mmdet==2.14.0 mmengine==0.10.7 mmsegmentation==0.14.1
+
+# step 3: install mmdet3d (clone the repo and build locally)
+# make sure your gcc is older THAN 10 (e.g. 9)
+# if not, execute: `export CC=/usr/bin/gcc-9` and `export CXX=/usr/bin/g++-9`
+# make sure working in /CoIRL-AD, this directory
+pip install -e git+https://github.com/open-mmlab/mmdetection3d.git@f1107977dfd26155fc1f83779ee6535d2468f449#egg=mmdet3d
+
+# step 4: install other packages
+pip install timm==1.0.20
+
+# step 5: use older setuptools to avoid bugs
+pip install setuptools==59.5.0
 ```
-7. download nuscenes datasets
+
+4. download nuscenes datasets
 Organize your dataset as follows:
 ```
 CoIRL-AD
@@ -86,7 +101,7 @@ If you have downloaded nuscenes in other location, use simbolic link:
 ```
 ln -s <source> <destination> # create a link between destination and source
 ```
-8. download info files for dataloader
+5. download info files for dataloader
 
 You can generate .pkl info files on your own via executing script `./tools/data_converter/vad_nuscenes_converter.py`.
 
