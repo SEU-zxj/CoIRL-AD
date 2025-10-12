@@ -7,7 +7,13 @@
 
   <!-- Tailwind CSS (CDN, for fast prototyping) -->
   <script src="https://cdn.tailwindcss.com"></script>
-
+  <!-- ECharts library (CDN) -->
+  <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+  <!-- PapaParse for reading CSV files -->
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+  <!-- custom chart setup -->
+  <script src="./js/charts.js"></script>
+  <script src="./js/competition_charts.js"></script>
   <!-- Favicon (optional) -->
   <link rel="icon" href="assets/images/icon.png" type="image/png">
 </head>
@@ -16,25 +22,39 @@
 
   <!-- Header -->
   <header class="text-center py-10 bg-white shadow-sm">
-    <h1 class="text-3xl font-bold text-gray-900">COIRL-AD</h1>
-    <p class="mt-2 text-lg text-gray-600">
+    <h1 class="text-3xl font-bold text-gray-900">CoIRL-AD:</h1>
+    <p class="mt-2 text-2xl text-gray-600">
       Collaborative-Competitive Imitation-Reinforcement Learning in Latent World Models for Autonomous Driving
     </p>
 
     <p class="mt-4 text-sm text-gray-500">
-      <strong>Xiaoji Zheng</strong>, <em>et al.</em> <br>
-      <span class="text-gray-400">(ICLR 2026 Submission)</span>
+      <strong>
+        Xiaoji Zheng<sup>1</sup>, 
+        Ziyuan Yang<sup>2</sup>, 
+        Yanhao Chen<sup>3</sup>, 
+        Yuhang Peng<sup>4</sup>, 
+        Yuanrong Tang<sup>1</sup>, 
+        Gengyuan Liu<sup>1</sup>, 
+        Bokui Chen<sup>1</sup> and 
+        Jiangtao Gong<sup>1</sup>
+      </strong>
     </p>
+    <span class="text-gray-400 text-xs mt-1 block">
+      <sup>1</sup> Tsinghua University<span class="mx-2"></span>
+      <sup>2</sup> Washington University<br>
+      <sup>3</sup> Beijing Jiaotong University<span class="mx-2"></span>
+      <sup>4</sup> The Hong Kong Polytechnic University
+    </span>
 
     <!-- Links -->
     <div class="mt-6 flex justify-center flex-wrap gap-3">
-      <a href="https://github.com/YourName/COIRL-AD" target="_blank"
+      <a href="https://github.com/SEU-zxj/COIRL-AD" target="_blank"
          class="px-4 py-2 rounded-full bg-gray-900 text-white hover:bg-gray-800">Code</a>
-      <a href="https://huggingface.co/YourName/COIRL-AD" target="_blank"
+      <a href="https://huggingface.co/Student-Xiaoji/COIRL-AD" target="_blank"
          class="px-4 py-2 rounded-full bg-yellow-500 text-white hover:bg-yellow-600">Model</a>
-      <a href="assets/paper.pdf" target="_blank"
+      <a href="https://arxiv.com" target="_blank"
          class="px-4 py-2 rounded-full bg-blue-600 text-white hover:bg-blue-700">Paper</a>
-      <a href="#videos"
+      <a href="#demos"
          class="px-4 py-2 rounded-full bg-green-600 text-white hover:bg-green-700">Demos</a>
       <a href="#results"
          class="px-4 py-2 rounded-full bg-purple-600 text-white hover:bg-purple-700">Results</a>
@@ -45,23 +65,145 @@
   <section id="intro" class="max-w-4xl mx-auto py-12 px-6">
     <h2 class="text-2xl font-semibold text-gray-900 mb-4">Overview</h2>
     <p class="text-gray-700 mb-6">
-      COIRL-AD introduces a unified framework that integrates imitation and reinforcement learning through a collaborative–competitive paradigm
+      COIRL-AD introduces a unified framework that integrates imitation and reinforcement learning through a collaborative-competitive paradigm
       within latent world models. The approach enhances policy robustness, enables self-improvement beyond expert data, and achieves consistent
       performance across complex driving scenarios.
     </p>
 
     <!-- Main Figure -->
     <div class="flex justify-center mb-6">
-      <picture>
-        <source type="image/svg+xml" srcset="assets/images/main_figure.svg">
-        <img src="assets/images/main_figure.png"
-             alt="Main architecture of COIRL-AD"
-             class="rounded-xl shadow-md max-w-full h-auto">
-      </picture>
+        <embed 
+            src="assets/images/main_figure.svg"
+            type="image/svg+xml"
+            class="rounded-xl shadow-md max-w-full h-auto"
+            width="765"
+            height="404"
+        >
     </div>
-    <p class="text-center text-gray-500 text-sm">Figure 1. Overview of the COIRL-AD framework.</p>
+    <p class="text-center text-gray-500 text-sm">Figure 1. Overview of the COIRL-AD framework. CoIRL-AD adopts a dual-policy architecture that integrates imitation learning (IL) and reinforcement learning (RL) through a shared latent world model. In each iteration, the IL actor and RL actor are trained in parallel. The latent world model is learned during the IL phase and then used in the RL phase, where only the RL actor and critic are updated. For exploration, the RL actor samples multiple action sequences, predicts future states via the latent world model, and evaluates them with rule-based reward functions. The critic assigns advantages to each sequence based on the imagined trajectories and rewards. To promote interaction, a competitive learning mechanism exchanges knowledge between the IL and RL actors.</p>
   </section>
 
+
+  <section id="demos" class="mt-16">
+    <h2 class="text-3xl font-bold text-center mb-8">Method Demonstrations</h2>
+  
+    <div class="space-y-12">
+      <div class="flex flex-col items-center">
+        <h3 class="text-xl font-semibold mb-4">Good Case: Going Straight</h3>
+        <div class="w-full max-w-5xl">
+          <video 
+            src="assets/videos/good_straight_x264_crf_40.mp4" 
+            class="w-full h-auto rounded-2xl shadow-md" 
+            controls 
+            preload="metadata">
+          </video>
+        </div>
+      </div>
+  
+      <div class="flex flex-col items-center">
+        <h3 class="text-xl font-semibold mb-4">Good Case: Turning Left</h3>
+        <div class="w-full max-w-5xl">
+          <video 
+            src="assets/videos/good_left_x264_crf_40.mp4" 
+            class="w-full h-auto rounded-2xl shadow-md" 
+            controls 
+            preload="metadata">
+          </video>
+        </div>
+      </div>
+  
+      <div class="flex flex-col items-center">
+        <h3 class="text-xl font-semibold mb-4">Good Case: Turning Right</h3>
+        <div class="w-full max-w-5xl">
+          <video 
+            src="assets/videos/good_right_x264_crf_40.mp4" 
+            class="w-full h-auto rounded-2xl shadow-md" 
+            controls 
+            preload="metadata">
+          </video>
+        </div>
+      </div>
+  
+      <div class="flex flex-col items-center">
+        <h3 class="text-xl font-semibold mb-4">Bad Case</h3>
+        <div class="w-full max-w-5xl">
+          <video 
+            src="assets/videos/bad_x264_crf_40.mp4" 
+            class="w-full h-auto rounded-2xl shadow-md" 
+            controls 
+            preload="metadata">
+          </video>
+        </div>
+      </div>
+    </div>
+
+  </section>
+
+  <section id="results" class="mt-16">
+    <h2 class="text-3xl font-bold text-center mb-8">Results on Nuscenes</h2>
+
+    <h3 class="text-2xl font-bold text-center mb-6">Results on NuScenes Eval Set</h3>
+    <div class="flex flex-col md:flex-row justify-center gap-6">
+      <div id="chart-l2-nusc" class="w-full md:w-1/2 h-80"></div>
+      <div id="chart-col-nusc" class="w-full md:w-1/2 h-80"></div>
+    </div>
+
+    <h3 class="text-2xl font-bold text-center mb-6">Results of Cross-City Gneralization</h3>
+    <div class="flex flex-col md:flex-row justify-center gap-6">
+      <div id="chart-l2-generalization" class="w-full md:w-1/2 h-80"></div>
+      <div id="chart-col-generalization" class="w-full md:w-1/2 h-80"></div>
+    </div>
+    
+    <h3 class="text-2xl font-bold text-center mb-6">Results on High L2 Scenarios</h3>
+    <div class="flex flex-col md:flex-row justify-center gap-6">
+      <div id="chart-longtail-l2-l2" class="w-full md:w-1/2 h-80"></div>
+      <div id="chart-longtail-l2-col" class="w-full md:w-1/2 h-80"></div>
+    </div>
+
+    <h3 class="text-2xl font-bold text-center mb-6">Results on High Collision Rate Scenarios</h3>
+    <div class="flex flex-col md:flex-row justify-center gap-6">
+      <div id="chart-longtail-col-l2" class="w-full md:w-1/2 h-80"></div>
+      <div id="chart-longtail-col-col" class="w-full md:w-1/2 h-80"></div>
+    </div>
+
+    <h3 class="text-2xl font-bold text-center mb-6">Summary (Average over 3 seconds)</h3>
+    <div class="flex flex-col md:flex-row justify-center gap-6">
+      <div id="chart-l2-summary" class="w-full h-80"></div>
+      <div id="chart-col-summary" class="w-full h-80"></div>
+    </div>
+  
+  </section>
+
+  <section id="competition" class="mt-16">
+    <h2 class="text-3xl font-bold text-center mb-8">Competition Details</h2>
+  
+    <!-- Row 1: Score -->
+    <h3 class="text-2xl font-bold text-center mb-6">Score Comparison</h3>
+    <div class="flex flex-col md:flex-row justify-center gap-6 mb-12">
+      <div id="normal-score" class="w-full md:w-1/2 h-80"></div>
+      <div id="generalization-score" class="w-full md:w-1/2 h-80"></div>
+    </div>
+  
+    <!-- Row 2: Diff -->
+    <h3 class="text-2xl font-bold text-center mb-6">Diff Comparison</h3>
+    <div class="flex flex-col md:flex-row justify-center gap-6 mb-12">
+      <div id="normal-diff" class="w-full md:w-1/2 h-80"></div>
+      <div id="generalization-diff" class="w-full md:w-1/2 h-80"></div>
+    </div>
+  
+    <!-- Row 3: Win -->
+    <h3 class="text-2xl font-bold text-center mb-6">Win Comparison</h3>
+    <div class="flex flex-col md:flex-row justify-center gap-6">
+      <div id="normal-win" class="w-full md:w-1/2 h-80"></div>
+      <div id="generalization-win" class="w-full md:w-1/2 h-80"></div>
+    </div>
+  </section>
+  
+  
+  
+  
+  
+  
   <!-- Footer -->
   <footer class="text-center text-sm text-gray-500 py-6 border-t mt-12">
     <p>© 2025 Xiaoji Zheng. Powered by <a href="https://pages.github.com" target="_blank" class="text-blue-500 hover:underline">GitHub Pages</a>.</p>
