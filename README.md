@@ -165,6 +165,30 @@ The good news is our repo also support [LAW](https://github.com/BraveGroup/LAW) 
 ./tools/nusc_my_train.sh law/law <num-of-GPUs> law/first-run
 ```
 
+### Monitor Training Process
+You can use Tensorboard easily monitor the training process.
+
+For example, if you train your model via `./tools/nusc_my_train.sh coirl/coirl <num-of-GPUs> coirl/first-run`, then the training infomation will be stored at `./work_dirs/coirl/first_try`.
+
+Use Tensorboard to visualize the intermediate variables during training:
+```
+tensorboard --logdir ./work_dirs/coirl
+```
+![tensorboard example](./docs/assets/images/tensorboard.png)
+
+### Collecting Eval Metrics After Each Epoch
+Be default, during training, the model will eval on the eval set after each epoch. The eval results will save into `.log` with other logging information.
+
+We provide a useful script to collection the eval metrics after each epoch. After you finished training, find the `.log.json` file, copy its absolute path, and paste it as the value of variable `input_log_file` in `./tools/extract_val_log_to_xlsx.py`, then set the path to save the `.xlsx` file.
+
+execute
+```
+python ./tools/extract_val_log_to_xlsx.py
+```
+to obtain the collected metrics table.
+
+![eval metrics collecting](./docs/assets/images/eval_metrics_collection.png)
+
 ## Testing
 We provide a eval script to hold the testing code:
 ```
@@ -173,6 +197,7 @@ We provide a eval script to hold the testing code:
 ./tools/dist_test.sh <absolute-path-of-config-file> <absolute-path-of-ckpt> <num-of-GPUs>
 ```
 You can also evaluate [LAW](https://github.com/BraveGroup/LAW), just change the configure file to `./projects/configs/law/law.py`, and use LAW's ckpt.
+
 
 ## Results and Checkpoints
 Here, we provide the ckpt and results of models we used in our paper.
