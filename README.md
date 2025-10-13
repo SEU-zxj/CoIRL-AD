@@ -27,7 +27,7 @@
 **CoIRL-AD** introduces a dual-policy framework that unifies imitation learning (IL) and reinforcement learning (RL) through a collaborative–competitive mechanism within a latent world model.  
 The framework enhances generalization and robustness in end-to-end autonomous driving without relying on external simulators.
 
-![main figure](./docs/assets/images/main_figure.jpg)
+![main figure](./assets/main_figure.jpg)
 
 ## News
 - **[2025.10.09]** We released our paper, code, ckpts and website.
@@ -174,7 +174,7 @@ Use Tensorboard to visualize the intermediate variables during training:
 ```
 tensorboard --logdir ./work_dirs/coirl
 ```
-![tensorboard example](./docs/assets/images/tensorboard.png)
+![tensorboard example](./assets/tensorboard.png)
 
 ### Collecting Eval Metrics After Each Epoch
 Be default, during training, the model will eval on the eval set after each epoch. The eval results will save into `.log` with other logging information.
@@ -187,7 +187,7 @@ python ./tools/extract_val_log_to_xlsx.py
 ```
 to obtain the collected metrics table.
 
-![eval metrics collecting](./docs/assets/images/eval_metrics_collection.png)
+![eval metrics collecting](./assets/eval_metrics_collection.png)
 
 ## Testing
 We provide a eval script to hold the testing code:
