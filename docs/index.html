@@ -15,17 +15,30 @@
   <script src="./js/charts.js"></script>
   <script src="./js/competition_charts.js"></script>
   <!-- Favicon (optional) -->
-  <link rel="icon" href="assets/images/icon.png" type="image/png">
+  <link rel="icon" href="assets/images/coirl_ad_icon.png" type="image/png">
+  <!-- Google Fonts -->
+  <link href="https://fonts.googleapis.com/css2?family=Merriweather:wght@400;700&display=swap" rel="stylesheet">
+  <!-- Font style -->
+  <style>
+    body {
+      font-family: 'Merriweather', serif;
+    }
+  </style>
 </head>
 
 <body class="bg-gray-50 text-gray-800 leading-relaxed">
 
   <!-- Header -->
   <header class="text-center py-10 bg-white shadow-sm">
-    <h1 class="text-3xl font-bold text-gray-900">CoIRL-AD:</h1>
+    <div class="flex items-center justify-center space-x-3">
+      <img src="assets/images/coirl_ad_icon.png" alt="CoIRL-AD Icon" class="w-12 h-12 rounded-xl">
+      <h1 class="text-3xl font-bold text-gray-900">CoIRL-AD:</h1>
+    </div>
+    
     <p class="mt-2 text-2xl text-gray-600">
       Collaborative-Competitive Imitation-Reinforcement Learning in Latent World Models for Autonomous Driving
     </p>
+    
 
     <p class="mt-4 text-sm text-gray-500">
       <strong>
@@ -49,21 +62,24 @@
     <!-- Links -->
     <div class="mt-6 flex justify-center flex-wrap gap-3">
       <a href="https://github.com/SEU-zxj/COIRL-AD" target="_blank"
-         class="px-4 py-2 rounded-full bg-gray-900 text-white hover:bg-gray-800">Code</a>
+         class="px-4 py-2 rounded-full bg-gray-800 text-white hover:bg-gray-700 shadow-sm">Code</a>
       <a href="https://huggingface.co/Student-Xiaoji/COIRL-AD" target="_blank"
-         class="px-4 py-2 rounded-full bg-yellow-500 text-white hover:bg-yellow-600">Model</a>
+         class="px-4 py-2 rounded-full bg-amber-500 text-white hover:bg-amber-600 shadow-sm">Model</a>
       <a href="https://arxiv.com" target="_blank"
-         class="px-4 py-2 rounded-full bg-blue-600 text-white hover:bg-blue-700">Paper</a>
+         class="px-4 py-2 rounded-full bg-sky-500 text-white hover:bg-sky-600 shadow-sm">Paper</a>
       <a href="#demos"
-         class="px-4 py-2 rounded-full bg-green-600 text-white hover:bg-green-700">Demos</a>
+         class="px-4 py-2 rounded-full bg-emerald-500 text-white hover:bg-emerald-600 shadow-sm">Demos</a>
       <a href="#results"
-         class="px-4 py-2 rounded-full bg-purple-600 text-white hover:bg-purple-700">Results</a>
+         class="px-4 py-2 rounded-full bg-indigo-500 text-white hover:bg-indigo-600 shadow-sm">Results</a>
+      <a href="#comments"
+         class="px-4 py-2 rounded-full bg-slate-500 text-white hover:bg-slate-600 shadow-sm">Discussions</a>
     </div>
+    
   </header>
 
   <!-- Intro Section -->
   <section id="intro" class="max-w-4xl mx-auto py-12 px-6">
-    <h2 class="text-2xl font-semibold text-gray-900 mb-4">Overview</h2>
+    <h2 class="text-3xl font-bold text-center mb-8">Overview</h2>
     <p class="text-gray-700 mb-6">
       COIRL-AD introduces a unified framework that integrates imitation and reinforcement learning through a collaborative-competitive paradigm
       within latent world models. The approach enhances policy robustness, enables self-improvement beyond expert data, and achieves consistent
@@ -185,7 +201,7 @@
     </div>
   
     <!-- Row 2: Diff -->
-    <h3 class="text-2xl font-bold text-center mb-6">Diff Comparison</h3>
+    <h3 class="text-2xl font-bold text-center mb-6">Score Diff Comparison</h3>
     <div class="flex flex-col md:flex-row justify-center gap-6 mb-12">
       <div id="normal-diff" class="w-full md:w-1/2 h-80"></div>
       <div id="generalization-diff" class="w-full md:w-1/2 h-80"></div>
@@ -199,14 +215,29 @@
     </div>
   </section>
   
-  
-  
-  
-  
+  <section id="comments" class="mt-20 max-w-4xl mx-auto">
+    <h2 class="text-3xl font-bold text-center mb-8">Comments</h2>
+    <script src="https://giscus.app/client.js"
+    data-repo="SEU-zxj/CoIRL-AD"
+    data-repo-id="R_kgDOP--2IA"
+    data-category="General"
+    data-category-id="DIC_kwDOP--2IM4Cwkok"
+    data-mapping="pathname"
+    data-strict="0"
+    data-reactions-enabled="1"
+    data-emit-metadata="0"
+    data-input-position="top"
+    data-theme="light"
+    data-lang="en"
+    crossorigin="anonymous"
+    async></script>
+    <div class="text-center text-gray-500 mt-4 text-sm">Comments powered by <a href="https://giscus.app/" target="_blank" class="text-blue-500 hover:underline">Giscus</a></div>
+  </section>
+
   
   <!-- Footer -->
   <footer class="text-center text-sm text-gray-500 py-6 border-t mt-12">
-    <p>© 2025 Xiaoji Zheng. Powered by <a href="https://pages.github.com" target="_blank" class="text-blue-500 hover:underline">GitHub Pages</a>.</p>
+    <p>© 2025 <a href="https://seu-zxj.github.io/" target="_blank" class="text-blue-500 hover:underline">Xiaoji Zheng</a>. Powered by <a href="https://pages.github.com" target="_blank" class="text-blue-500 hover:underline">GitHub Pages</a>.</p>
   </footer>
 
 </body>
