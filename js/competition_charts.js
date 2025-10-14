@@ -47,14 +47,16 @@ async function loadCSV(path) {
           type: 'line',
           data: ilScore.steps.map((s, i) => [s, ilScore.values[i]]),
           smooth: true,
-          showSymbol: false
+          showSymbol: false,
+          color: '#1f77b4'
         },
         {
           name: 'RL Actor',
           type: 'line',
           data: rlScore.steps.map((s, i) => [s, rlScore.values[i]]),
           smooth: true,
-          showSymbol: false
+          showSymbol: false,
+          color: '#ff7f0e'
         }
       ],
       legend: { top: 30 }
@@ -89,14 +91,16 @@ async function loadCSV(path) {
           type: 'line',
           data: ilWin.steps.map((s, i) => [s, ilWin.values[i]]),
           smooth: true,
-          showSymbol: false
+          showSymbol: false,
+          color: '#1f77b4'
         },
         {
           name: 'RL Actor',
           type: 'line',
           data: rlWin.steps.map((s, i) => [s, rlWin.values[i]]),
           smooth: true,
-          showSymbol: false
+          showSymbol: false,
+          color: '#ff7f0e'
         }
       ],
       legend: { top: 30 }
