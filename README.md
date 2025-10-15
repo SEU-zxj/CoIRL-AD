@@ -16,8 +16,8 @@
 </div>
 
 <div>
-<a href="https://github.com/SEU-zxj/CoIRL-AD"><img alt="Static Badge" src="https://img.shields.io/badge/_-page-blue?style=flat&logo=githubpages&logoColor=white&logoSize=auto&labelColor=gray"></a>
-<a href="https://arxiv.org/"><img alt="Static Badge" src="https://img.shields.io/badge/arxiv-paper-red?logo=arxiv"></a>
+<a href="https://seu-zxj.github.io/CoIRL-AD"><img alt="Static Badge" src="https://img.shields.io/badge/_-page-blue?style=flat&logo=githubpages&logoColor=white&logoSize=auto&labelColor=gray"></a>
+<a href="https://arxiv.org/abs/2510.12560"><img alt="Static Badge" src="https://img.shields.io/badge/arxiv-paper-red?logo=arxiv"></a>
 <a href="https://github.com/SEU-zxj/CoIRL-AD"><img alt="Static Badge" src="https://img.shields.io/badge/github-code-white?logo=github"></a>
 <a href="https://huggingface.co/Student-Xiaoji/CoIRL-AD-models"><img alt="Static Badge" src="https://img.shields.io/badge/hf-models-yellow?logo=huggingface"></a>
 </div>
@@ -30,8 +30,7 @@ The framework enhances generalization and robustness in end-to-end autonomous dr
 ![main figure](./assets/main_figure.jpg)
 
 ## News
-- **[2025.10.09]** We released our paper, code, ckpts and website.
-- **[2024.11.25]** Porject start!
+- **[2025.10.15]** We released our paper, code, ckpts and website.
 
 ## Installation
 I really hate spend so much time on configuring environments, so here I have tried my best to shorten the configure steps.
