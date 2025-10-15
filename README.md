@@ -238,11 +238,14 @@ This project is derived from [LAW](https://github.com/BraveGroup/LAW), [SSR](htt
 ## Citations
 If you find our work helpful, please consider cite our project:
 ```
-@article{coirl-ad,
-  title={},
-  author={},
-  journal={},
-  year={}
+@misc{zheng2025coirl-ad,
+      title={CoIRL-AD: Collaborative-Competitive Imitation-Reinforcement Learning in Latent World Models for Autonomous Driving}, 
+      author={Xiaoji Zheng and Ziyuan Yang and Yanhao Chen and Yuhang Peng and Yuanrong Tang and Gengyuan Liu and Bokui Chen and Jiangtao Gong},
+      year={2025},
+      eprint={2510.12560},
+      archivePrefix={arXiv},
+      primaryClass={cs.CV},
+      url={https://arxiv.org/abs/2510.12560}, 
 }
 ```
 
