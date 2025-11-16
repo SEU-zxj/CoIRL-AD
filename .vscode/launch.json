@@ -1,0 +1,100 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "CoIRL-AD",
+            "type": "debugpy",
+            "request": "launch",
+            "cwd": "/opt/nvme0/zhengxj/projects/CoIRL-AD",
+            "python": "/opt/nvme0/zhengxj/softwares/anaconda3/envs/law/bin/python",
+            "module": "torch.distributed.run",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "env": {
+                "CUDA_VISIBLE_DEVICES": "0",
+            },
+            "args": [
+                "--nproc_per_node=1",
+                "--master_port=23334",
+                "tools/train.py",
+                "projects/configs/coirl/coirl.py",
+                "--work-dir=work_dirs/coirl/coirl_debug",
+                "--launcher", "pytorch",
+                "--deterministic",
+                "--cfg-options", "evaluation.jsonfile_prefix=work_dirs/coirl/coirl_debug/eval/results",
+                // "--resume-from", "/opt/nvme0/zhengxj/projects/LAW-RL/work_dirs/law/step_aware_actor_critic+rl_use_bc_0.001+diagonal_cov+min_std_0.2+compete_relative_scorer/epoch_15.pth"
+            ]
+        },
+        {
+            "name": "CoIRL-AD_v2",
+            "type": "debugpy",
+            "request": "launch",
+            "cwd": "/opt/nvme0/zhengxj/projects/CoIRL-AD",
+            "python": "/opt/nvme0/zhengxj/softwares/anaconda3/envs/law/bin/python",
+            "module": "torch.distributed.run",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "env": {
+                "CUDA_VISIBLE_DEVICES": "0",
+            },
+            "args": [
+                "--nproc_per_node=1",
+                "--master_port=23334",
+                "tools/train.py",
+                "projects/configs/coirl/coirl_v2.py",
+                "--work-dir=work_dirs/coirl_v2/coirl_v2_debug",
+                "--launcher", "pytorch",
+                "--deterministic",
+                "--cfg-options", "evaluation.jsonfile_prefix=work_dirs/coirl_v2/coirl_v2_debug/eval/results",
+                // "--resume-from", "/opt/nvme0/zhengxj/projects/LAW-RL/work_dirs/law/step_aware_actor_critic+rl_use_bc_0.001+diagonal_cov+min_std_0.2+compete_relative_scorer/epoch_15.pth"
+            ]
+        },
+        {
+            "name": "CoIRL-AD_test",
+            "type": "debugpy",
+            "request": "launch",
+            "cwd": "/opt/nvme0/zhengxj/projects/CoIRL-AD",
+            "python": "/opt/nvme0/zhengxj/softwares/anaconda3/envs/law/bin/python",
+            "module": "torch.distributed.run",
+            "console": "integratedTerminal",
+            "env": {
+                "CUDA_VISIBLE_DEVICES": "0",
+            },
+            "args": [
+                "--nproc_per_node=1",
+                "--master_port=23334",
+                "tools/test.py",
+                "projects/configs/coirl/coirl.py",
+                // "/opt/nvme0/zhengxj/projects/LAW-RL/work_dirs/law/step_aware_actor_critic+rl_use_bc_0.005+diagonal_cov+min_std_0.2+compete_relative_scorer/epoch_21.pth",
+                "--launcher", "pytorch",
+                // "--deterministic",
+                "--eval=bbox"
+            ]
+        },
+        {
+            "name": "CoIRL-AD_v2_test",
+            "type": "debugpy",
+            "request": "launch",
+            "cwd": "/opt/nvme0/zhengxj/projects/CoIRL-AD",
+            "python": "/opt/nvme0/zhengxj/softwares/anaconda3/envs/law/bin/python",
+            "module": "torch.distributed.run",
+            "console": "integratedTerminal",
+            "env": {
+                "CUDA_VISIBLE_DEVICES": "0",
+            },
+            "args": [
+                "--nproc_per_node=1",
+                "--master_port=23334",
+                "tools/test.py",
+                "projects/configs/coirl/coirl_v2.py",
+                "/opt/nvme0/zhengxj/projects/LAW-RL/work_dirs/law/step_aware_actor_critic+rl_use_bc_0.005+diagonal_cov+min_std_0.2+compete_relative_scorer/epoch_21.pth",
+                "--launcher", "pytorch",
+                // "--deterministic",
+                "--eval=bbox"
+            ]
+        },
+    ]
+}
