@@ -30,8 +30,8 @@ class CompetitiveLearningMachine:
         self.n_il_win = torch.zeros(1)
         self.n_rl_win = torch.zeros(1)
 
-        self.learning_parameter_list = ['view_query_feat', 'waypoint_query_feat']
-        self.learning_layer_list = ['_spatial_decoder', 'wp_attn', 'waypoint_head', 'position_encoder']
+        self.learning_parameter_list = ['waypoint_query_feat']
+        self.learning_layer_list = ['auto_regression_attention', 'wp_attn', 'waypoint_head']
 
     def set_refer_critic(self):
         refer_critic = self.rl_actor.refer_critic
