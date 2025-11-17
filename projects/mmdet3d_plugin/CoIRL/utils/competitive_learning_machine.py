@@ -4,7 +4,7 @@ import torch.distributed as dist
 from projects.mmdet3d_plugin.CoIRL.utils import CollsionConstrain, ImitationConstrain
 
 class CompetitiveLearningMachine:
-    def __init__(self, il_actor, rl_actor, use_critic, max_threshold=10.0, min_threshold=1.0, competition_batch_size=100, swap_percentage=0.5):
+    def __init__(self, il_actor, rl_actor, use_critic, max_threshold=10.0, min_threshold=1.0, competition_batch_size=100, swap_percentage=0.5, competition_warmup_flag=False, competition_warmup_threshold=5000):
         '''
         we will sum the score of il_actor and rl_actor for `competition_batch_size` data.
         if abs(il_score - rl_score) >= max_threshold, directly cover the params of actor perform worse with the better one
@@ -20,6 +20,9 @@ class CompetitiveLearningMachine:
         self.min_threshold = min_threshold
         self.competition_batch_size = competition_batch_size
         self.swap_percentage = swap_percentage
+
+        self.competition_warmup_flag = competition_warmup_flag
+        self.competition_warmup_threshold = competition_warmup_threshold
 
         self.collision_scorer = CollsionConstrain()
         self.imitation_scorer = ImitationConstrain()
@@ -134,7 +137,9 @@ class CompetitiveLearningMachine:
         if self.use_critic:
             self.set_refer_critic()
 
-        if self.iter % self.competition_batch_size == 0:
+        warmup_end_flag = (not self.competition_warmup_flag) or (self.competition_warmup_flag and self.iter > self.competition_warmup_threshold)
+
+        if (self.iter % self.competition_batch_size == 0) and warmup_end_flag:
             ret_dict = self.competition()
             ret_dict.update({
                 'il_score': il_score,
@@ -145,5 +150,14 @@ class CompetitiveLearningMachine:
                 'il_score': il_score,
                 'rl_score': rl_score,
             }
+
+        if dist.is_initialized():
+            for r in range(dist.get_world_size()):
+                if dist.get_rank() == r:
+                    print(f"[Rank {r}] il_win={self.n_il_win.item()}, rl_win={self.n_rl_win.item()}")
+                dist.barrier()  # wait for this rank to finish printing
+        else:
+            print(f"[Rank 0] il_win={self.n_il_win.item()}, rl_win={self.n_rl_win.item()}")
+
 
         return ret_dict
