@@ -118,7 +118,26 @@ class WaypointHead_IL_v2(BaseModule):
             nn.ReLU(inplace=True),
             nn.Linear(hidden_channel, hidden_channel)
         )
-        
+
+        self.wm_out = nn.Sequential(
+            nn.Linear(hidden_channel, hidden_channel),
+            nn.GELU(),
+            nn.Linear(hidden_channel, hidden_channel)
+        )
+
+        # initialize wm_out weights: small last-layer init
+        for m in self.wm_out.modules():
+            if isinstance(m, nn.Linear):
+                # standard init for first layer(s)
+                if m is self.wm_out[-1]:  # last linear
+                    nn.init.xavier_uniform_(m.weight, gain=0.01)
+                    if m.bias is not None:
+                        nn.init.constant_(m.bias, 0.)
+                else:
+                    nn.init.xavier_uniform_(m.weight, gain=nn.init.calculate_gain('relu'))
+                    if m.bias is not None:
+                        nn.init.constant_(m.bias, 0.)
+
         # loss
         self.loss_plan_reg = build_loss(dict(type='L1Loss', loss_weight=1.0))
         self.loss_plan_rec = nn.MSELoss()
@@ -272,6 +291,7 @@ class WaypointHead_IL_v2(BaseModule):
         action_aware_latent = self.action_aware_encoder(cur_latent_state_with_ego)
 
         wm_next_latent = self._wm_decoder(action_aware_latent, action_aware_latent)
+        wm_next_latent = self.wm_out(wm_next_latent)
         return wm_next_latent
 
     def wm_group_prediction(self, latent_state, cur_waypoint_group):
@@ -292,6 +312,7 @@ class WaypointHead_IL_v2(BaseModule):
 
         wm_next_latent = self._wm_decoder(action_aware_latent, action_aware_latent) # [B*group_size, num_of_token, hidden_dim]
         wm_next_latent = wm_next_latent.reshape(batch_size, group_size, num_tokens, hidden_dim) # [B, group_size, num_of_token, hidden_dim]
+        wm_next_latent = self.wm_out(wm_next_latent)
         return wm_next_latent
 
     def loss_3d(self, 
@@ -767,7 +788,7 @@ class WaypointHead_RL_v2(BaseModule):
     def compute_critic_loss(self, reward, cur_value, pred_fut_value):
         '''
         reward (Tensor): [B, T, G, T]
-        cur_value (Tensor): [B, T, G]
+        cur_value (Tensor): [B,]
         pred_fut_value (Tensor): [B, T, G]
         '''
         reward_sum = reward.sum(dim=-1) # [B, T, G]
