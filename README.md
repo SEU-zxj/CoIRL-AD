@@ -16,8 +16,8 @@
 </div>
 
 <div>
-<a href="https://github.com/SEU-zxj/CoIRL-AD"><img alt="Static Badge" src="https://img.shields.io/badge/_-page-blue?style=flat&logo=githubpages&logoColor=white&logoSize=auto&labelColor=gray"></a>
-<a href="https://arxiv.org/"><img alt="Static Badge" src="https://img.shields.io/badge/arxiv-paper-red?logo=arxiv"></a>
+<a href="https://seu-zxj.github.io/CoIRL-AD"><img alt="Static Badge" src="https://img.shields.io/badge/_-page-blue?style=flat&logo=githubpages&logoColor=white&logoSize=auto&labelColor=gray"></a>
+<a href="https://arxiv.org/abs/2510.12560"><img alt="Static Badge" src="https://img.shields.io/badge/arxiv-paper-red?logo=arxiv"></a>
 <a href="https://github.com/SEU-zxj/CoIRL-AD"><img alt="Static Badge" src="https://img.shields.io/badge/github-code-white?logo=github"></a>
 <a href="https://huggingface.co/Student-Xiaoji/CoIRL-AD-models"><img alt="Static Badge" src="https://img.shields.io/badge/hf-models-yellow?logo=huggingface"></a>
 </div>
@@ -27,11 +27,10 @@
 **CoIRL-AD** introduces a dual-policy framework that unifies imitation learning (IL) and reinforcement learning (RL) through a collaborative–competitive mechanism within a latent world model.  
 The framework enhances generalization and robustness in end-to-end autonomous driving without relying on external simulators.
 
-![main figure](./docs/assets/images/main_figure.jpg)
+![main figure](./assets/main_figure.jpg)
 
 ## News
-- **[2025.10.09]** We released our paper, code, ckpts and website.
-- **[2024.11.25]** Porject start!
+- **[2025.10.15]** We released our paper, code, ckpts and website.
 
 ## Installation
 I really hate spend so much time on configuring environments, so here I have tried my best to shorten the configure steps.
@@ -174,7 +173,7 @@ Use Tensorboard to visualize the intermediate variables during training:
 ```
 tensorboard --logdir ./work_dirs/coirl
 ```
-![tensorboard example](./docs/assets/images/tensorboard.png)
+![tensorboard example](./assets/tensorboard.png)
 
 ### Collecting Eval Metrics After Each Epoch
 Be default, during training, the model will eval on the eval set after each epoch. The eval results will save into `.log` with other logging information.
@@ -187,7 +186,7 @@ python ./tools/extract_val_log_to_xlsx.py
 ```
 to obtain the collected metrics table.
 
-![eval metrics collecting](./docs/assets/images/eval_metrics_collection.png)
+![eval metrics collecting](./assets/eval_metrics_collection.png)
 
 ## Testing
 We provide a eval script to hold the testing code:
@@ -239,11 +238,14 @@ This project is derived from [LAW](https://github.com/BraveGroup/LAW), [SSR](htt
 ## Citations
 If you find our work helpful, please consider cite our project:
 ```
-@article{coirl-ad,
-  title={},
-  author={},
-  journal={},
-  year={}
+@misc{zheng2025coirl-ad,
+      title={CoIRL-AD: Collaborative-Competitive Imitation-Reinforcement Learning in Latent World Models for Autonomous Driving}, 
+      author={Xiaoji Zheng and Ziyuan Yang and Yanhao Chen and Yuhang Peng and Yuanrong Tang and Gengyuan Liu and Bokui Chen and Jiangtao Gong},
+      year={2025},
+      eprint={2510.12560},
+      archivePrefix={arXiv},
+      primaryClass={cs.CV},
+      url={https://arxiv.org/abs/2510.12560}, 
 }
 ```
 

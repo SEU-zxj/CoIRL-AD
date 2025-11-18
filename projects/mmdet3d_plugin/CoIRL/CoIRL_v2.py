@@ -46,6 +46,8 @@ class CoIRL_v2(VAD):
                 actor_il_head=None,
                 actor_rl_head=None,
                 rl_actor_use_bc=None,
+                competition_warmup_flag=False,
+                competition_warmup_threshold=5000,
                 **kwargs,
                  ):
         super().__init__( **kwargs)
@@ -88,7 +90,7 @@ class CoIRL_v2(VAD):
         self.results_path = results_path
         if save_results_flag:
             self.results_return = {} # key is sample_idx, value is a dict with keys: ['scene_token', eval_metrics, 'ego_pred_traj']
-        self.CLM = CompetitiveLearningMachine(il_actor=self.actor_il_head, rl_actor=self.actor_rl_head, use_critic=self.use_critic, min_threshold=compete_min_threshold)
+        self.CLM = CompetitiveLearningMachine(il_actor=self.actor_il_head, rl_actor=self.actor_rl_head, use_critic=self.use_critic, min_threshold=compete_min_threshold, competition_warmup_flag=competition_warmup_flag, competition_warmup_threshold=competition_warmup_threshold)
         
 
     def extract_img_feat(self, img, img_metas, len_queue=None):
@@ -396,7 +398,7 @@ class CoIRL_v2(VAD):
             
             # compute value
             cur_value = self.actor_rl_head.critic(cur_state.detach()) # [B,]
-            cur_value = cur_value.unsqueeze(1).unsqueeze(2).expand(B, traj_len, self.group_size) # [B, T, G]
+            cur_value_expand = cur_value.unsqueeze(1).unsqueeze(2).expand(B, traj_len, self.group_size) # [B, T, G]
 
             # pred fut_state
             traj_group = traj_group.reshape(B, traj_len*self.group_size, traj_len, 2)
@@ -409,7 +411,7 @@ class CoIRL_v2(VAD):
             # compute actor_loss and reward
             traj_group = traj_group.reshape(B, traj_len, self.group_size, traj_len, 2)
             # reward [B, T, G, T]
-            loss_actor, reward = self.actor_rl_head.compute_actor_loss(traj_group, preds_ego_future_policy, ego_fut_trajs, gt_bboxes_3d, gt_attr_labels, fut_valid_flag, ego_fut_masks, cur_value, pred_fut_value)
+            loss_actor, reward = self.actor_rl_head.compute_actor_loss(traj_group, preds_ego_future_policy, ego_fut_trajs, gt_bboxes_3d, gt_attr_labels, fut_valid_flag, ego_fut_masks, cur_value_expand, pred_fut_value)
 
             # compute critic_loss
             loss_critic = self.actor_rl_head.compute_critic_loss(reward, cur_value, pred_fut_value)
@@ -646,6 +648,21 @@ class BEVEncoder(BaseModule):
             nn.Linear(hidden_channel*2, hidden_channel)
         )
 
+        # after self.proj defined
+        self.proj_ln = nn.LayerNorm(hidden_channel)
+        # initialize proj weights: small last-layer init
+        for m in self.proj.modules():
+            if isinstance(m, nn.Linear):
+                # standard init for first layer(s)
+                if m is self.proj[-1]:  # last linear
+                    nn.init.xavier_uniform_(m.weight, gain=0.01)
+                    if m.bias is not None:
+                        nn.init.constant_(m.bias, 0.)
+                else:
+                    nn.init.xavier_uniform_(m.weight, gain=nn.init.calculate_gain('relu'))
+                    if m.bias is not None:
+                        nn.init.constant_(m.bias, 0.)
+
     def forward(self, bev_embed):
         """
         bev_embed: (B, 40000, 256)
@@ -668,5 +685,7 @@ class BEVEncoder(BaseModule):
 
         # 5. Project to 256
         x = self.proj(x)   # (B, 49, 256)
+
+        x = self.proj_ln(x)   # (B, N, hidden_channel)
 
         return x

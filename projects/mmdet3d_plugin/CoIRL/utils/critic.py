@@ -58,10 +58,12 @@ class Critic(nn.Module):
     def compute_critic_loss(self, reward, cur_value, pred_value):
         '''
         reward (Tensor): [B, T, G] (sum of all six point)
-        cur_value (Tensor): [B, T, G]
+        cur_value (Tensor): [B,]
         pred_value (Tensor): [B, T, G]
         '''
         target = reward + self.gamma * pred_value
+        # average the target of all samples, which is the estimate of the expectation of the target under policy
+        target = target.mean(dim=(1, 2))
         loss_critic = self.mse_loss(cur_value, target.detach())
         return loss_critic
     

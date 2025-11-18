@@ -352,7 +352,7 @@ model = dict(
         num_traj_modal=3,
         group_size=32, # sample trajectory number from policy
         simple_gaussian=True, # simple_gaussin means we set the std_x=std_y and rho=0
-        min_std_list=[0.2, 0.2, 0.2, 0.2, 0.2, 0.2],
+        min_std_list=[0.05, 0.05, 0.05, 0.05, 0.05, 0.05],
         max_std_list=[5, 5, 5, 5, 5, 5],
         max_abs_rho=0.75,
         debug_std=True,
@@ -370,6 +370,8 @@ model = dict(
     rl_actor_use_bc=True,
     rl_traj_gauss_nll_weight=0.005,
     eval_method='decouple', # 'il': only use il, 'decouple': use both il actor and rl actor (mode trajectory), 'score-based': use reward model as score, then select one got higest score
+    competition_warmup_flag=False,
+    competition_warmup_threshold=5000,
     save_results_flag=False,
     results_path=""
     )
