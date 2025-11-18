@@ -356,6 +356,7 @@ class CoIRL_v2(VAD):
             perception_losses = self.pts_bbox_head.loss(*loss_inputs, img_metas=img_metas)
 
             losses.update(perception_losses)
+            outs['bev_embed'] = outs['bev_embed'].permute(1, 0, 2)
 
         cur_bev_embed = outs['bev_embed']
         cur_state = self.bev_encoder(cur_bev_embed)
@@ -537,7 +538,7 @@ class CoIRL_v2(VAD):
         ego_info = torch.cat([ego_his_trajs_, ego_lcf_feat_, ego_fut_cmd_], dim=1)
 
         outs = self.pts_bbox_head(img_feats, img_metas, prev_bev,
-                                        ego_his_trajs=ego_his_trajs, ego_lcf_feat=ego_lcf_feat)
+                                        ego_his_trajs=ego_his_trajs, ego_lcf_feat=ego_lcf_feat, is_test=True)
         cur_bev_embed = outs['bev_embed']
         cur_state = self.bev_encoder(cur_bev_embed)
 

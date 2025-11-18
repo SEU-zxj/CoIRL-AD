@@ -39,17 +39,18 @@
             "justMyCode": true,
             "env": {
                 "CUDA_VISIBLE_DEVICES": "0",
+                // "TORCH_DISTRIBUTED_DEBUG": "DETAIL"
             },
             "args": [
                 "--nproc_per_node=1",
                 "--master_port=23334",
                 "tools/train.py",
-                "projects/configs/coirl/coirl_v2.py",
+                "projects/configs/coirl/coirl_v2_perception_based.py",
                 "--work-dir=work_dirs/coirl_v2/coirl_v2_debug",
                 "--launcher", "pytorch",
                 "--deterministic",
                 "--cfg-options", "evaluation.jsonfile_prefix=work_dirs/coirl_v2/coirl_v2_debug/eval/results",
-                // "--resume-from", "/opt/nvme0/zhengxj/projects/LAW-RL/work_dirs/law/step_aware_actor_critic+rl_use_bc_0.001+diagonal_cov+min_std_0.2+compete_relative_scorer/epoch_15.pth"
+                // "--resume-from", "/opt/nvme0/zhengxj/projects/CoIRL-AD/work_dirs/coirl_v2/temporal_augmented_first_try/epoch_12.pth"
             ]
         },
         {
@@ -90,7 +91,7 @@
                 "--master_port=23334",
                 "tools/test.py",
                 "projects/configs/coirl/coirl_v2.py",
-                "/opt/nvme0/zhengxj/projects/LAW-RL/work_dirs/law/step_aware_actor_critic+rl_use_bc_0.005+diagonal_cov+min_std_0.2+compete_relative_scorer/epoch_21.pth",
+                "/opt/nvme0/zhengxj/projects/CoIRL-AD/work_dirs/coirl_v2/temporal_augmented_first_try/epoch_10.pth",
                 "--launcher", "pytorch",
                 // "--deterministic",
                 "--eval=bbox"

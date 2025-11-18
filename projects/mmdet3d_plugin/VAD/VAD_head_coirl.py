@@ -250,7 +250,7 @@ class VADHead_CoIRL(DETRHead):
             self.traj_bg_cls_weight = 0
 
         super(VADHead_CoIRL, self).__init__(*args, transformer=transformer, **kwargs)
-        if self.perception_mode == 'percetion-based':
+        if self.perception_mode == 'perception-based':
             self.code_weights = nn.Parameter(torch.tensor(
                 self.code_weights, requires_grad=False), requires_grad=False)
             self.map_code_weights = nn.Parameter(torch.tensor(
@@ -285,10 +285,10 @@ class VADHead_CoIRL(DETRHead):
             self.loss_map_iou = build_loss(loss_map_iou)
             self.loss_map_pts = build_loss(loss_map_pts)
             self.loss_map_dir = build_loss(loss_map_dir)
-            self.loss_plan_reg = build_loss(loss_plan_reg)
-            self.loss_plan_bound = build_loss(loss_plan_bound)
-            self.loss_plan_col = build_loss(loss_plan_col)
-            self.loss_plan_dir = build_loss(loss_plan_dir)
+            # self.loss_plan_reg = build_loss(loss_plan_reg)
+            # self.loss_plan_bound = build_loss(loss_plan_bound)
+            # self.loss_plan_col = build_loss(loss_plan_col)
+            # self.loss_plan_dir = build_loss(loss_plan_dir)
 
     def _init_layers(self):
         """Initialize classification branch and regression branch of head."""
@@ -414,8 +414,8 @@ class VADHead_CoIRL(DETRHead):
             
             if self.ego_his_encoder is not None:
                 self.ego_his_encoder = LaneNet(2, self.embed_dims//2, 3)
-            else:
-                self.ego_query = nn.Embedding(1, self.embed_dims)	
+            # else:
+            #     self.ego_query = nn.Embedding(1, self.embed_dims)	
 
             if self.ego_agent_decoder is not None:
                 self.ego_agent_decoder = build_transformer_layer_sequence(self.ego_agent_decoder)
@@ -499,6 +499,7 @@ class VADHead_CoIRL(DETRHead):
                 only_bev=False,
                 ego_his_trajs=None,
                 ego_lcf_feat=None,
+                is_test=False
             ):
         """Forward function.
         Args:
@@ -547,7 +548,7 @@ class VADHead_CoIRL(DETRHead):
                 img_metas=img_metas,
                 prev_bev=prev_bev,
             )
-        elif self.perception_mode == 'perception-free':
+        elif self.perception_mode == 'perception-free' or is_test:
             bev_embed = self.transformer.get_bev_features(
                 mlvl_feats,
                 bev_queries,
