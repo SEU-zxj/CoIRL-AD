@@ -368,7 +368,7 @@ model = dict(
         )
         ),
     rl_actor_use_bc=True,
-    rl_traj_gauss_nll_weight=0.005,
+    rl_traj_gauss_nll_weight=0.0,
     eval_method='decouple', # 'il': only use il, 'decouple': use both il actor and rl actor (mode trajectory), 'score-based': use reward model as score, then select one got higest score
     save_results_flag=False,
     results_path=""
@@ -440,7 +440,8 @@ data = dict(
         map_eval_use_same_gt_sample_num_flag=map_eval_use_same_gt_sample_num_flag,
         box_type_3d='LiDAR',
         custom_eval_version='vad_nusc_detection_cvpr_2019',
-        load_gt_map=True,),
+        load_gt_map=True,
+        filter_empty_gt=True),
     val=dict(type=dataset_type,
              data_root=data_root, 
              queue_length=queue_length_test,

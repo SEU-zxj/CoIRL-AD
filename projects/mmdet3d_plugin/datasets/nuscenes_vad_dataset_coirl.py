@@ -1235,8 +1235,10 @@ class VADCustomNuScenesDataset_CoIRL(NuScenesDataset):
         if self.load_gt_map:
             example = self.vectormap_pipeline(example,input_dict)
             if self.filter_empty_gt and \
-                    ((example is None or ~(example['gt_labels_3d']._data != -1).any()) or \
-                        (example is None or ~(example['map_gt_labels_3d']._data != -1).any())):
+                    (
+                        (example is None or ~(example['gt_labels_3d']._data != -1).any() or (example['gt_labels_3d']._data.numel() == 0)) or \
+                        (example is None or ~(example['map_gt_labels_3d']._data != -1).any())
+                    ):
                 return None
         else:
             if self.filter_empty_gt and \
