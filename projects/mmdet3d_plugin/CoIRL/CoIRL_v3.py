@@ -15,13 +15,13 @@ from projects.mmdet3d_plugin.models.utils.grid_mask import GridMask
 from projects.mmdet3d_plugin.VAD.planner.metric_stp3 import PlanningMetric
 from mmdet3d.models import builder
 
-from projects.mmdet3d_plugin.CoIRL.utils import CompetitiveLearningMachine
+from projects.mmdet3d_plugin.CoIRL.utils import CompetitiveLearningMachine_v3
 import matplotlib.pyplot as plt
 from ipdb import set_trace
 import pickle
 
 @DETECTORS.register_module()
-class CoIRL_v2(VAD):
+class CoIRL_v3(VAD):
     def __init__(self,
                 use_video=False,
                 use_swin=False,
@@ -42,7 +42,7 @@ class CoIRL_v2(VAD):
                 eval_method='il',
                 save_results_flag=False,
                 results_path=None,
-                bev_encoder=None,
+                # bev_encoder=None,
                 actor_il_head=None,
                 actor_rl_head=None,
                 rl_actor_use_bc=None,
@@ -77,13 +77,9 @@ class CoIRL_v2(VAD):
         self.rl_loss_weight = rl_loss_weight
         self.rl_traj_gauss_nll_weight = rl_traj_gauss_nll_weight
 
-        self.bev_encoder = builder.build_backbone(bev_encoder)
-        assert actor_il_head['cmd_usage'] == actor_rl_head['cmd_usage'], "different `cmd_suage`!"
-        assert actor_il_head['debug_std'] == actor_rl_head['debug_std'], "different `debug_std`!"
+        # self.bev_encoder = builder.build_backbone(bev_encoder)
         self.actor_il_head = builder.build_backbone(actor_il_head)
         self.actor_rl_head = builder.build_backbone(actor_rl_head)
-        self.actor_il_model_uncertainty = actor_il_head.model_uncertainty
-        self.world_model_action_input = actor_il_head.world_model_action_input
         self.group_size = self.actor_rl_head.group_size
         self.debug_std = self.actor_rl_head.debug_std
         self.use_critic = self.actor_rl_head.use_critic
@@ -94,7 +90,7 @@ class CoIRL_v2(VAD):
         self.results_path = results_path
         if save_results_flag:
             self.results_return = {} # key is sample_idx, value is a dict with keys: ['scene_token', eval_metrics, 'ego_pred_traj']
-        self.CLM = CompetitiveLearningMachine(il_actor=self.actor_il_head, rl_actor=self.actor_rl_head, use_critic=self.use_critic, min_threshold=compete_min_threshold, competition_warmup_flag=competition_warmup_flag, competition_warmup_threshold=competition_warmup_threshold, actor_il_model_uncertainty=self.actor_il_model_uncertainty)
+        self.CLM = CompetitiveLearningMachine_v3(il_actor=self.actor_il_head, rl_actor=self.actor_rl_head, use_critic=self.use_critic, min_threshold=compete_min_threshold, competition_warmup_flag=competition_warmup_flag, competition_warmup_threshold=competition_warmup_threshold)
         
 
     def extract_img_feat(self, img, img_metas, len_queue=None):
@@ -197,7 +193,7 @@ class CoIRL_v2(VAD):
             for i in range(len_queue):
                 img_metas = [img_metas_list[i]]
                 img_feats = [each_scale[:, i] for each_scale in img_feats_list]
-                prev_bev = self.pts_bbox_head(
+                prev_bev, prev_bev_pos = self.pts_bbox_head(
                     img_feats, img_metas, prev_bev, only_bev=True)
             self.train()
             self.actor_rl_head.refer_critic.eval()
@@ -209,43 +205,31 @@ class CoIRL_v2(VAD):
         img_feats = self.extract_feat(img=img, img_metas=img_metas)
         assert len(img_feats) == 1, "there ate multi timestep img input in `obtain_current_bev_and_pred_fut_state`"
         # first obtain current bev, shape (B, 200*200, 256)
-        cur_bev_embed = self.pts_bbox_head(
+        cur_bev_embed, cur_bev_pos = self.pts_bbox_head(
                 img_feats, img_metas, prev_bev, only_bev=True)
-        cur_state = self.bev_encoder(cur_bev_embed)
+        # cur_state = self.bev_encoder(cur_bev_embed)
         # then calculate loss
         losses = {}
         # ===IL Actor=== #
-        if self.actor_il_model_uncertainty:
-            preds_ego_future_policy, pred_fut_state, _ = self.actor_il_head(cur_state, img_metas)
-            gt_ego_fut_trajs = img_metas[0]['ego_fut_trajs'].to(img_feats[0].device)
-            gt_ego_fut_masks = img_metas[0]['ego_fut_masks'].squeeze(0).unsqueeze(-1).to(img_feats[0].device)
-            loss_waypoint = self.actor_il_head.loss_traj_uncertainty(preds_ego_future_policy, gt_ego_fut_trajs, gt_ego_fut_masks)
-            losses.update({
-                f'prev_frame_loss_waypoint_0': loss_waypoint
-            })
-        else:
-            preds_ego_future_traj, pred_fut_state = self.actor_il_head(cur_state, img_metas)
-            gt_ego_fut_trajs = img_metas[0]['ego_fut_trajs'].to(img_feats[0].device)
-            gt_ego_fut_masks = img_metas[0]['ego_fut_masks'].squeeze(0).unsqueeze(-1).to(img_feats[0].device)
-            loss_waypoint = self.actor_il_head.loss_3d(preds_ego_future_traj, gt_ego_fut_trajs, gt_ego_fut_masks)
-            losses.update({
-                f'prev_frame_loss_waypoint_0': loss_waypoint
-            })
-        
-        if self.world_model_action_input == 'gt_action':
-            pred_fut_state = self.actor_il_head.wm_prediction(cur_state, gt_ego_fut_trajs)
+        preds_ego_future_traj, latent_state, pred_fut_bev = self.actor_il_head(cur_bev_embed, cur_bev_pos, img_metas)
+        gt_ego_fut_trajs = img_metas[0]['ego_fut_trajs'].to(img_feats[0].device)
+        gt_ego_fut_masks = img_metas[0]['ego_fut_masks'].squeeze(0).unsqueeze(-1).to(img_feats[0].device)
+        loss_waypoint = self.actor_il_head.loss_3d(preds_ego_future_traj, gt_ego_fut_trajs, gt_ego_fut_masks)
+        losses.update({
+            f'prev_frame_loss_waypoint_0': loss_waypoint
+        })
         # ===RL Actor=== #
         if self.rl_actor_use_bc:
             if self.debug_std:
-                preds_ego_future_policy, _ = self.actor_rl_head(cur_state, img_metas)
+                preds_ego_future_policy, latent_state_rl, _ = self.actor_rl_head(cur_bev_embed, cur_bev_pos, img_metas)
             else:
-                preds_ego_future_policy = self.actor_rl_head(cur_state, img_metas)
+                preds_ego_future_policy, latent_state_rl = self.actor_rl_head(cur_bev_embed, cur_bev_pos, img_metas)
             loss_rl_bc = self.actor_rl_head.loss_rl_bc(preds_ego_future_policy, gt_ego_fut_trajs.unsqueeze(0), gt_ego_fut_masks.unsqueeze(0).unsqueeze(0).squeeze(-1))
             losses.update({
                 f'prev_frame_loss_rl_bc_0': loss_rl_bc * self.rl_traj_gauss_nll_weight
             })        
 
-        return cur_state, pred_fut_state, losses
+        return pred_fut_bev, losses
 
     @force_fp32(apply_to=('img','points','prev_bev'))
     def forward_train(self,
@@ -305,7 +289,7 @@ class CoIRL_v2(VAD):
         # 1)
         prev_wm_bev = self.obtain_history_bev(imgs_queue=prev_wm_img, img_metas_list=prev_wm_img_metas)
         # 2)
-        _, wm_pred_fut_state, prev_frame_losses = self.obtain_current_bev_and_pred_fut_state(img=wm_img, img_metas=wm_img_metas, prev_bev=prev_wm_bev)
+        wm_pred_fut_bev, prev_frame_losses = self.obtain_current_bev_and_pred_fut_state(img=wm_img, img_metas=wm_img_metas, prev_bev=prev_wm_bev)
         # 3)
         prev_bev = self.obtain_history_bev(imgs_queue=prev_img, img_metas_list=prev_img_metas)
         # 4)
@@ -320,7 +304,7 @@ class CoIRL_v2(VAD):
                                         map_gt_labels_3d=map_gt_labels_3d,
                                         gt_labels=gt_labels,
                                         gt_bboxes=gt_bboxes,
-                                        wm_pred_fut_state=wm_pred_fut_state,
+                                        wm_pred_fut_bev=wm_pred_fut_bev,
                                         ego_his_trajs=ego_his_trajs, ego_fut_trajs=ego_fut_trajs,
                                         ego_fut_masks=ego_fut_masks, ego_fut_cmd=ego_fut_cmd,
                                         ego_lcf_feat=ego_lcf_feat, gt_attr_labels=gt_attr_labels,
@@ -339,7 +323,7 @@ class CoIRL_v2(VAD):
                           map_gt_labels_3d=None,
                           gt_labels=None,
                           gt_bboxes=None,
-                          wm_pred_fut_state=None,
+                          wm_pred_fut_bev=None,
                           ego_his_trajs=None,
                           ego_fut_trajs=None,
                           ego_fut_masks=None,
@@ -362,7 +346,7 @@ class CoIRL_v2(VAD):
         ego_fut_cmd = ego_fut_cmd.reshape(B, -1)
         ego_info = torch.cat([ego_his_trajs, ego_lcf_feat, ego_fut_cmd], dim=1)
         
-        prev_pred_state = wm_pred_fut_state
+        prev_pred_bev = wm_pred_fut_bev
         # ===== Perception Module Pipeline ====== #
         outs = self.pts_bbox_head(img_feats, img_metas, prev_bev,
                                 ego_his_trajs=ego_his_trajs, ego_lcf_feat=ego_lcf_feat)
@@ -375,51 +359,38 @@ class CoIRL_v2(VAD):
 
             losses.update(perception_losses)
             outs['bev_embed'] = outs['bev_embed'].permute(1, 0, 2)
+            # outs['bev_pos'] = outs['bev_pos'].permute(1, 0, 2) # TODO need check
 
         cur_bev_embed = outs['bev_embed']
-        cur_state = self.bev_encoder(cur_bev_embed)
-
-        # world model loss
-        loss_rec = self.actor_il_head.loss_reconstruction(prev_pred_state, cur_state.detach())
-        losses['loss_rec'] = loss_rec * self.wm_loss_weight
-    
+        cur_bev_pos = outs['bev_pos']
+        # cur_state = self.bev_encoder(cur_bev_embed)
         # ===== IL Actor Training Pipeline ====== #
-        if self.actor_il_model_uncertainty:
-            if self.debug_std:
-                preds_ego_future_il_policy, pred_fut_state, std_info_il = self.actor_il_head(cur_state, img_metas, ego_info)
-                losses.update(std_info_il)
-            else:
-                preds_ego_future_il_policy, pred_fut_state = self.actor_il_head(cur_state, img_metas, ego_info)
+        preds_ego_future_traj, latent_state_il, pred_fut_bev = self.actor_il_head(cur_bev_embed, cur_bev_pos, img_metas, ego_info)
+        
+        # world model loss
+        loss_rec = self.actor_il_head.loss_reconstruction(prev_pred_bev, cur_bev_embed.detach())
+        losses['loss_rec'] = loss_rec * self.wm_loss_weight
 
-            # waypoint loss
-            loss_waypoint = self.actor_il_head.loss_traj_uncertainty(preds_ego_future_il_policy,
-                                                ego_fut_trajs.squeeze(1),
-                                                ego_fut_masks.squeeze(0).squeeze(0).unsqueeze(-1),
-                                                )
-            losses.update({'loss_waypoint': loss_waypoint})
-        else:
-            preds_ego_future_traj, pred_fut_state = self.actor_il_head(cur_state, img_metas, ego_info)
-
-            # waypoint loss
-            loss_waypoint = self.actor_il_head.loss_3d(preds_ego_future_traj,
-                                                ego_fut_trajs.squeeze(1),
-                                                ego_fut_masks.squeeze(0).squeeze(0).unsqueeze(-1),
-                                                )
-            losses.update({'loss_waypoint': loss_waypoint})
+        # waypoint loss
+        loss_waypoint = self.actor_il_head.loss_3d(preds_ego_future_traj,
+                                            ego_fut_trajs.squeeze(1),
+                                            ego_fut_masks.squeeze(0).squeeze(0).unsqueeze(-1),
+                                            )
+        losses.update({'loss_waypoint': loss_waypoint})
 
         # ===== RL Actor Training Pipeline ====== #
         if self.debug_std:
-            preds_ego_future_rl_policy, std_info_rl = self.actor_rl_head(cur_state, img_metas, ego_info)
-            losses.update(std_info_rl)
+            preds_ego_future_policy, latent_state_rl, std_info = self.actor_rl_head(cur_bev_embed, cur_bev_pos, img_metas, ego_info)
+            losses.update(std_info)
         else:
-            preds_ego_future_rl_policy = self.actor_rl_head(cur_state, img_metas, ego_info)
+            preds_ego_future_policy, latent_state_rl = self.actor_rl_head(cur_bev_embed, cur_bev_pos, img_metas, ego_info)
 
         if self.use_critic:
             # sample trajs and construct step aware trajectories
-            sample_traj_group = preds_ego_future_rl_policy.rsample([self.group_size]) # [G, B, T, 2]
+            sample_traj_group = preds_ego_future_policy.rsample([self.group_size]) # [G, B, T, 2]
             sample_traj_group = sample_traj_group.permute(1,0,2,3) # [B, G, T, 2]
 
-            mode_traj = preds_ego_future_rl_policy.mean # [B, T, 2]
+            mode_traj = preds_ego_future_policy.mean # [B, T, 2]
             traj_len = mode_traj.size(1)
 
             traj_group = mode_traj.unsqueeze(1).unsqueeze(2).repeat(1, traj_len, self.group_size, 1, 1) # [B, T, G, T, 2]
@@ -428,21 +399,21 @@ class CoIRL_v2(VAD):
                 traj_group[:,i,:,i,:] = sample_traj_group[:,:,i,:] # [B, T, G, T, 2]
             
             # compute value
-            cur_value = self.actor_rl_head.critic(cur_state.detach()) # [B,]
+            cur_value = self.actor_rl_head.critic(cur_bev_embed.detach()) # [B,]
             cur_value_expand = cur_value.unsqueeze(1).unsqueeze(2).expand(B, traj_len, self.group_size) # [B, T, G]
 
             # pred fut_state
             traj_group = traj_group.reshape(B, traj_len*self.group_size, traj_len, 2)
             with torch.no_grad():
-                pred_fut_state_rl = self.actor_il_head.wm_group_prediction(cur_state.detach(), traj_group.detach()) # [B, T*G, n_token, H]
+                pred_fut_bev_rl = self.actor_il_head.wm_group_prediction(latent_state_il.detach(), traj_group.detach(), cur_bev_embed.detach()) # [B, T*G, n_token, H]
             with torch.no_grad():
-                pred_fut_value = self.actor_rl_head.refer_critic(pred_fut_state_rl.detach()) # [B, T*G]
+                pred_fut_value = self.actor_rl_head.refer_critic(pred_fut_bev_rl.detach()) # [B, T*G]
                 pred_fut_value = pred_fut_value.reshape(B, traj_len, self.group_size) # [B, T, G]
             
             # compute actor_loss and reward
             traj_group = traj_group.reshape(B, traj_len, self.group_size, traj_len, 2)
             # reward [B, T, G, T]
-            loss_actor, reward = self.actor_rl_head.compute_actor_loss(traj_group, preds_ego_future_rl_policy, ego_fut_trajs, gt_bboxes_3d, gt_attr_labels, fut_valid_flag, ego_fut_masks, cur_value_expand, pred_fut_value)
+            loss_actor, reward = self.actor_rl_head.compute_actor_loss(traj_group, preds_ego_future_policy, ego_fut_trajs, gt_bboxes_3d, gt_attr_labels, fut_valid_flag, ego_fut_masks, cur_value_expand, pred_fut_value)
 
             # compute critic_loss
             loss_critic = self.actor_rl_head.compute_critic_loss(reward, cur_value, pred_fut_value)
@@ -452,22 +423,19 @@ class CoIRL_v2(VAD):
                 'loss_critic': loss_critic * self.rl_loss_weight
             })
         else:
-            loss_rl = self.actor_rl_head.loss_rl_group_sampling(preds_ego_future_rl_policy, ego_fut_trajs, gt_bboxes_3d, gt_attr_labels, fut_valid_flag, ego_fut_masks)
+            loss_rl = self.actor_rl_head.loss_rl_group_sampling(preds_ego_future_policy, ego_fut_trajs, gt_bboxes_3d, gt_attr_labels, fut_valid_flag, ego_fut_masks)
 
             losses.update({
                 'loss_rl': loss_rl * self.rl_loss_weight
             })
 
         if self.rl_actor_use_bc:
-            loss_rl_bc = self.actor_rl_head.loss_rl_bc(preds_ego_future_rl_policy, ego_fut_trajs, ego_fut_masks)
+            loss_rl_bc = self.actor_rl_head.loss_rl_bc(preds_ego_future_policy, ego_fut_trajs, ego_fut_masks)
             losses.update({
                 'loss_rl_bc': loss_rl_bc * self.rl_traj_gauss_nll_weight
             })        
 
-        if self.actor_il_model_uncertainty:
-            competition_info = self.CLM.competitive_learning(preds_ego_future_il_policy.mean, preds_ego_future_rl_policy.mean, ego_fut_trajs.squeeze(1), gt_bboxes_3d, gt_attr_labels, fut_valid_flag, ego_fut_masks.squeeze(0).squeeze(0))
-        else:
-            competition_info = self.CLM.competitive_learning(preds_ego_future_traj, preds_ego_future_rl_policy.mean, ego_fut_trajs.squeeze(1), gt_bboxes_3d, gt_attr_labels, fut_valid_flag, ego_fut_masks.squeeze(0).squeeze(0))
+        competition_info = self.CLM.competitive_learning(preds_ego_future_traj, preds_ego_future_policy.mean, ego_fut_trajs.squeeze(1), gt_bboxes_3d, gt_attr_labels, fut_valid_flag, ego_fut_masks.squeeze(0).squeeze(0))
 
         losses.update(competition_info)
 
@@ -576,16 +544,12 @@ class CoIRL_v2(VAD):
         outs = self.pts_bbox_head(img_feats, img_metas, prev_bev,
                                         ego_his_trajs=ego_his_trajs, ego_lcf_feat=ego_lcf_feat, is_test=True)
         cur_bev_embed = outs['bev_embed']
-        cur_state = self.bev_encoder(cur_bev_embed)
+        cur_bev_pos = outs['bev_pos']
+        # cur_state = self.bev_encoder(cur_bev_embed)
 
-        if self.actor_il_model_uncertainty:
-            policy, _ = self.actor_il_head(cur_state, img_metas, is_test=True)
-            preds_ego_future_traj = policy.mean
-        else:
-            preds_ego_future_traj, _ = self.actor_il_head(cur_state, img_metas, is_test=True)
-        
+        preds_ego_future_traj, _, _ = self.actor_il_head(cur_bev_embed, cur_bev_pos, img_metas)
         if self.eval_method == 'decouple':
-            preds_ego_future_policy = self.actor_rl_head(cur_state, img_metas, is_test=True)
+            preds_ego_future_policy, _ = self.actor_rl_head(cur_bev_embed, cur_bev_pos, img_metas, is_test=True)
             preds_ego_future_traj_rl = preds_ego_future_policy.mean
             
         with torch.no_grad():
@@ -666,65 +630,65 @@ class CoIRL_v2(VAD):
         with open(self.results_path, 'wb') as f:
             pickle.dump(self.results_return, f)
 
-@DETECTORS.register_module()
-class BEVEncoder(BaseModule):
-    def __init__(self, bev_h, bev_w, hidden_channel, backbone_out_chans, backbone):
-        super().__init__()
-        self.bev_h=bev_h
-        self.bev_w=bev_w
-        self.hidden_channel = hidden_channel
-        self.backbone_out_chans = backbone_out_chans
-        # 1. Normalization (Channel-wise LayerNorm over embedding dim = 256)
-        self.norm = nn.LayerNorm(hidden_channel)
+# @DETECTORS.register_module()
+# class BEVEncoder(BaseModule):
+    # def __init__(self, bev_h, bev_w, hidden_channel, backbone_out_chans, backbone):
+    #     super().__init__()
+    #     self.bev_h=bev_h
+    #     self.bev_w=bev_w
+    #     self.hidden_channel = hidden_channel
+    #     self.backbone_out_chans = backbone_out_chans
+    #     # 1. Normalization (Channel-wise LayerNorm over embedding dim = 256)
+    #     self.norm = nn.LayerNorm(hidden_channel)
 
-        # 2. BEV backbone: Swin Transformer
-        self.backbone = timm.create_model(**backbone)
+    #     # 2. BEV backbone: Swin Transformer
+    #     self.backbone = timm.create_model(**backbone)
 
-        # 3. linear projection: 768 → 256 with 2-layer MLP
-        self.proj = nn.Sequential(
-            nn.Linear(backbone_out_chans, hidden_channel*2),
-            nn.GELU(),
-            nn.Linear(hidden_channel*2, hidden_channel)
-        )
+    #     # 3. linear projection: 768 → 256 with 2-layer MLP
+    #     self.proj = nn.Sequential(
+    #         nn.Linear(backbone_out_chans, hidden_channel*2),
+    #         nn.GELU(),
+    #         nn.Linear(hidden_channel*2, hidden_channel)
+    #     )
 
-        # after self.proj defined
-        self.proj_ln = nn.LayerNorm(hidden_channel)
-        # initialize proj weights: small last-layer init
-        for m in self.proj.modules():
-            if isinstance(m, nn.Linear):
-                # standard init for first layer(s)
-                if m is self.proj[-1]:  # last linear
-                    nn.init.xavier_uniform_(m.weight, gain=0.01)
-                    if m.bias is not None:
-                        nn.init.constant_(m.bias, 0.)
-                else:
-                    nn.init.xavier_uniform_(m.weight, gain=nn.init.calculate_gain('relu'))
-                    if m.bias is not None:
-                        nn.init.constant_(m.bias, 0.)
+    #     # after self.proj defined
+    #     self.proj_ln = nn.LayerNorm(hidden_channel)
+    #     # initialize proj weights: small last-layer init
+    #     for m in self.proj.modules():
+    #         if isinstance(m, nn.Linear):
+    #             # standard init for first layer(s)
+    #             if m is self.proj[-1]:  # last linear
+    #                 nn.init.xavier_uniform_(m.weight, gain=0.01)
+    #                 if m.bias is not None:
+    #                     nn.init.constant_(m.bias, 0.)
+    #             else:
+    #                 nn.init.xavier_uniform_(m.weight, gain=nn.init.calculate_gain('relu'))
+    #                 if m.bias is not None:
+    #                     nn.init.constant_(m.bias, 0.)
 
-    def forward(self, bev_embed):
-        """
-        bev_embed: (B, 40000, 256)
-        40000 = 200 x 200
-        """
-        B, N, C = bev_embed.shape
+    # def forward(self, bev_embed):
+    #     """
+    #     bev_embed: (B, 40000, 256)
+    #     40000 = 200 x 200
+    #     """
+    #     B, N, C = bev_embed.shape
 
-        # 1. Normalize
-        bev_embed = self.norm(bev_embed)
+    #     # 1. Normalize
+    #     bev_embed = self.norm(bev_embed)
 
-        # 2. Reshape for Swin: (B, C, H, W)
-        x = bev_embed.transpose(1, 2).reshape(B, C, self.bev_h, self.bev_w)
+    #     # 2. Reshape for Swin: (B, C, H, W)
+    #     x = bev_embed.transpose(1, 2).reshape(B, C, self.bev_h, self.bev_w)
 
-        # 3. Forward Swin
-        feats = self.backbone(x)      # tuple of features
-        x = feats[0]                  # (B, 7, 7, 768)
+    #     # 3. Forward Swin
+    #     feats = self.backbone(x)      # tuple of features
+    #     x = feats[0]                  # (B, 7, 7, 768)
 
-        # 4. Flatten spatial dims → tokens
-        x = x.flatten(1, 2)  # (B, 49, 768)
+    #     # 4. Flatten spatial dims → tokens
+    #     x = x.flatten(1, 2)  # (B, 49, 768)
 
-        # 5. Project to 256
-        x = self.proj(x)   # (B, 49, 256)
+    #     # 5. Project to 256
+    #     x = self.proj(x)   # (B, 49, 256)
 
-        x = self.proj_ln(x)   # (B, N, hidden_channel)
+    #     x = self.proj_ln(x)   # (B, N, hidden_channel)
 
-        return x
+    #     return x

@@ -3,8 +3,8 @@ import torch.nn as nn
 import torch.distributed as dist
 from projects.mmdet3d_plugin.CoIRL.utils import CollsionConstrain, ImitationConstrain
 
-class CompetitiveLearningMachine:
-    def __init__(self, il_actor, rl_actor, use_critic, max_threshold=10.0, min_threshold=1.0, competition_batch_size=100, swap_percentage=0.5, competition_warmup_flag=False, competition_warmup_threshold=5000, actor_il_model_uncertainty=False):
+class CompetitiveLearningMachine_v3:
+    def __init__(self, il_actor, rl_actor, use_critic, max_threshold=10.0, min_threshold=1.0, competition_batch_size=100, swap_percentage=0.5, competition_warmup_flag=False, competition_warmup_threshold=5000):
         '''
         we will sum the score of il_actor and rl_actor for `competition_batch_size` data.
         if abs(il_score - rl_score) >= max_threshold, directly cover the params of actor perform worse with the better one
@@ -13,7 +13,6 @@ class CompetitiveLearningMachine:
         '''
         super().__init__()
         self.il_actor = il_actor
-        self.actor_il_model_uncertainty = actor_il_model_uncertainty
         self.rl_actor = rl_actor
         self.use_critic = use_critic
 
@@ -39,11 +38,8 @@ class CompetitiveLearningMachine:
         self.rl_score_sum_last_comp = torch.zeros(1)
         self.score_diff_last_comp = torch.zeros(1)
 
-        self.learning_parameter_list = ['waypoint_query_feat']
-        if self.actor_il_model_uncertainty:
-            self.learning_layer_list = ['auto_regression_attention', 'wp_attn', 'waypoint_head', 'waypoint_cov_head']
-        else:
-            self.learning_layer_list = ['auto_regression_attention', 'wp_attn', 'waypoint_head']
+        self.learning_parameter_list = ['waypoint_query_feat', 'waypoint_pos_feat', 'navi_embedding']
+        self.learning_layer_list = ['navi_se', 'tokenlearner', 'latent_decoder', 'auto_regression_attention', 'wp_attn', 'waypoint_head']
 
     def set_refer_critic(self):
         refer_critic = self.rl_actor.refer_critic

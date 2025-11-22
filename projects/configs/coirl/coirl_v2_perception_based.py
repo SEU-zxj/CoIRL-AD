@@ -43,7 +43,7 @@ bev_h_ = 200 # 100 => 200
 bev_w_ = 200 # 100 => 200
 queue_length = 7 # from 4 to 7
 queue_length_test = 4
-total_epochs = 24
+total_epochs = 12
 
 model = dict(
     type='CoIRL_v2',
@@ -352,7 +352,7 @@ model = dict(
         num_traj_modal=3,
         group_size=32, # sample trajectory number from policy
         simple_gaussian=True, # simple_gaussin means we set the std_x=std_y and rho=0
-        min_std_list=[0.2, 0.2, 0.2, 0.2, 0.2, 0.2],
+        min_std_list=[0.05, 0.05, 0.05, 0.05, 0.05, 0.05],
         max_std_list=[5, 5, 5, 5, 5, 5],
         max_abs_rho=0.75,
         debug_std=True,
@@ -368,7 +368,7 @@ model = dict(
         )
         ),
     rl_actor_use_bc=True,
-    rl_traj_gauss_nll_weight=0.0,
+    rl_traj_gauss_nll_weight=1e-5,
     eval_method='decouple', # 'il': only use il, 'decouple': use both il actor and rl actor (mode trajectory), 'score-based': use reward model as score, then select one got higest score
     save_results_flag=False,
     results_path=""

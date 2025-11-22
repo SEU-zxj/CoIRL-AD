@@ -1,6 +1,6 @@
 _base_ = [
-    '../datasets/custom_nus-3d.py',
-    '../_base_/default_runtime.py'
+    '../../datasets/custom_nus-3d.py',
+    '../../_base_/default_runtime.py'
 ]
 #
 plugin = True
@@ -340,7 +340,7 @@ model = dict(
         use_wm=True,
         num_traj_modal=3,
         model_uncertainty=False,
-        world_model_action_input='mean_action', # 'mean_action', 'policy_sample', 'gt_action'
+        world_model_action_input='gt_action', # 'mean_action', 'policy_sample', 'gt_action'
         min_std_list=[0.05, 0.05, 0.05, 0.05, 0.05, 0.05],
         max_std_list=[5, 5, 5, 5, 5, 5],
         max_abs_rho=0.75,

@@ -1,6 +1,6 @@
 _base_ = [
-    '../datasets/custom_nus-3d.py',
-    '../_base_/default_runtime.py'
+    '../../datasets/custom_nus-3d.py',
+    '../../_base_/default_runtime.py'
 ]
 #
 plugin = True
@@ -345,7 +345,7 @@ model = dict(
         max_std_list=[5, 5, 5, 5, 5, 5],
         max_abs_rho=0.75,
         debug_std=True,
-        cmd_usage='after_planning', # 'after_planning' or 'before_planning'
+        cmd_usage='before_planning', # 'after_planning' or 'before_planning'
         # group_size=32, # sample trajectory number from policy
     ),
     actor_rl_head=dict(
@@ -373,7 +373,7 @@ model = dict(
             gamma=0.5,
             ema_tau=0.9,
         ),
-        cmd_usage='after_planning', # 'after_planning' or 'before_planning'
+        cmd_usage='before_planning', # 'after_planning' or 'before_planning'
         ),
     rl_actor_use_bc=True,
     rl_traj_gauss_nll_weight=0,

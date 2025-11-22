@@ -9,3 +9,5 @@ from .VAD_transformer import VADPerceptionTransformer, \
 
 from .VAD_head_coirl import VADHead_CoIRL
 from .VAD_transformer_coirl import VADPerceptionTransformer_CoIRL
+
+from .VAD_head_coirl_v3 import VADHead_CoIRL_v3

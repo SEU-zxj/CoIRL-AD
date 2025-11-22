@@ -46,7 +46,7 @@ queue_length_test = 4
 total_epochs = 3
 
 model = dict(
-    type='CoIRL_v2',
+    type='CoIRL_v3',
     use_grid_mask=True,
     video_test_mode=True,
     use_multi_view=True,
@@ -70,7 +70,7 @@ model = dict(
     ),
     ##==perception head enhanced==#
     pts_bbox_head=dict(
-        type='VADHead_CoIRL',
+        type='VADHead_CoIRL_v3',
         perception_mode='perception-free', # 'perception-free' or 'perception-based' (add auxiliary tasks: detection+map reconstruction+agent motion prediction)
         map_thresh=0.5,
         dis_thresh=0.2,
@@ -313,25 +313,25 @@ model = dict(
                 iou_cost=dict(type='IoUCost', iou_mode='giou', weight=0.0),
                 pts_cost=dict(type='OrderedPtsL1Cost', weight=1.0),
                 pc_range=point_cloud_range))),
-    bev_encoder=dict(
-        type='BEVEncoder',
-        bev_h=bev_h_,
-        bev_w=bev_w_,
-        backbone = dict(
-            model_name='swin_tiny_patch4_window7_224',
-            img_size=(bev_h_, bev_w_),         # <-- add this (e.g. (200,200))
-            in_chans=256,
-            drop_path_rate=0.1,
-            features_only=True,
-            out_indices=[3],
-            pretrained=False,
-        ),
-        hidden_channel=256,
-        backbone_out_chans=768,
-    ),
+    # bev_encoder=dict(
+    #     type='BEVEncoder',
+    #     bev_h=bev_h_,
+    #     bev_w=bev_w_,
+    #     backbone = dict(
+    #         model_name='swin_tiny_patch4_window7_224',
+    #         img_size=(bev_h_, bev_w_),         # <-- add this (e.g. (200,200))
+    #         in_chans=256,
+    #         drop_path_rate=0.1,
+    #         features_only=True,
+    #         out_indices=[3],
+    #         pretrained=False,
+    #     ),
+    #     hidden_channel=256,
+    #     backbone_out_chans=768,
+    # ),
     ##==perception head enhanced==#
     actor_il_head=dict(
-        type='WaypointHead_IL_v2',
+        type='WaypointHead_IL_v3',
         num_proposals=6,
         num_views=6,
         hidden_channel=256,
@@ -339,17 +339,41 @@ model = dict(
         dropout=0.1,
         use_wm=True,
         num_traj_modal=3,
-        model_uncertainty=False,
-        world_model_action_input='mean_action', # 'mean_action', 'policy_sample', 'gt_action'
-        min_std_list=[0.05, 0.05, 0.05, 0.05, 0.05, 0.05],
-        max_std_list=[5, 5, 5, 5, 5, 5],
-        max_abs_rho=0.75,
-        debug_std=True,
-        cmd_usage='after_planning', # 'after_planning' or 'before_planning'
+        latent_decoder=dict(
+            type='CustomTransformerDecoder', # receive [n_token, b, hidden]
+            num_layers=3,
+            return_intermediate=False,
+            transformerlayers=dict(
+                type='BaseTransformerLayer',
+                attn_cfgs=[
+                    dict(
+                        type='MultiheadAttention',
+                        embed_dims=_dim_,
+                        num_heads=8),
+                ],
+                feedforward_channels=_ffn_dim_,
+                # ffn_dropout=0.1,
+                operation_order=('self_attn', 'norm', 'ffn', 'norm'))),
+        wp_attn=dict(
+            type='CustomTransformerDecoder', # receive [n_token, b, hidden]
+            num_layers=1,
+            return_intermediate=False,
+            transformerlayers=dict(
+                type='BaseTransformerLayer',
+                attn_cfgs=[
+                    dict(
+                        type='MultiheadAttention',
+                        embed_dims=_dim_,
+                        num_heads=8),
+                ],
+                feedforward_channels=_ffn_dim_,
+                # ffn_dropout=0.1,
+                operation_order=('cross_attn', 'norm', 'ffn', 'norm'))),
+        n_scene_tokens=16,
         # group_size=32, # sample trajectory number from policy
-    ),
+        ),
     actor_rl_head=dict(
-        type='WaypointHead_RL_v2',
+        type='WaypointHead_RL_v3', # receive [n_token, b, hidden]
         num_proposals=6,
         num_views=6,
         hidden_channel=256,
@@ -357,6 +381,37 @@ model = dict(
         dropout=0.1,
         use_wm=False,
         num_traj_modal=3,
+        latent_decoder=dict(
+            type='CustomTransformerDecoder',
+            num_layers=3,
+            return_intermediate=False,
+            transformerlayers=dict(
+                type='BaseTransformerLayer',
+                attn_cfgs=[
+                    dict(
+                        type='MultiheadAttention',
+                        embed_dims=_dim_,
+                        num_heads=8),
+                ],
+                feedforward_channels=_ffn_dim_,
+                # ffn_dropout=0.1,
+                operation_order=('self_attn', 'norm', 'ffn', 'norm'))),
+        wp_attn=dict(
+            type='CustomTransformerDecoder',
+            num_layers=1,
+            return_intermediate=False,
+            transformerlayers=dict(
+                type='BaseTransformerLayer',
+                attn_cfgs=[
+                    dict(
+                        type='MultiheadAttention',
+                        embed_dims=_dim_,
+                        num_heads=8),
+                ],
+                feedforward_channels=_ffn_dim_,
+                # ffn_dropout=0.1,
+                operation_order=('cross_attn', 'norm', 'ffn', 'norm'))),
+        n_scene_tokens=16,
         group_size=32, # sample trajectory number from policy
         simple_gaussian=True, # simple_gaussin means we set the std_x=std_y and rho=0
         min_std_list=[0.05, 0.05, 0.05, 0.05, 0.05, 0.05],
@@ -372,8 +427,7 @@ model = dict(
             n_layer=2,
             gamma=0.5,
             ema_tau=0.9,
-        ),
-        cmd_usage='after_planning', # 'after_planning' or 'before_planning'
+        )
         ),
     rl_actor_use_bc=True,
     rl_traj_gauss_nll_weight=0,

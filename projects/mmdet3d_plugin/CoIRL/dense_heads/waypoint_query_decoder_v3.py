@@ -10,8 +10,9 @@ from mmdet3d.core import AssignResult, PseudoSampler
 from mmdet.core import build_bbox_coder, build_assigner, multi_apply, reduce_mean
 from mmdet.models import HEADS
 from mmdet.models.utils.transformer import inverse_sigmoid
+from mmcv.cnn.bricks.transformer import build_transformer_layer_sequence
 
-from projects.mmdet3d_plugin.CoIRL.utils import DrivableAreaConstrain, ImitationConstrain, CollsionConstrain_RL
+from projects.mmdet3d_plugin.CoIRL.utils import DrivableAreaConstrain, ImitationConstrain, CollsionConstrain_RL, TokenLearnerV11, TokenFuser
 
 from torch.nn.parameter import Parameter
 from torch.nn import Linear
@@ -27,8 +28,68 @@ from torch.distributions.multivariate_normal import MultivariateNormal
 from projects.mmdet3d_plugin.CoIRL.dense_heads.utils import get_locations
 from projects.mmdet3d_plugin.VAD.planner.metric_stp3 import PlanningMetric
 
+from mmcv.cnn.bricks.registry import TRANSFORMER_LAYER_SEQUENCE
+from mmcv.cnn.bricks.transformer import TransformerLayerSequence
+
+class MLN(nn.Module):
+    ''' 
+    from "https://github.com/exiawsh/StreamPETR"
+    Args:
+        c_dim (int): dimension of latent code c
+        f_dim (int): feature dimension
+    '''
+
+    def __init__(self, c_dim, f_dim=256, use_ln=True):
+        super().__init__()
+        self.c_dim = c_dim
+        self.f_dim = f_dim
+        self.use_ln = use_ln
+
+        self.reduce = nn.Sequential(
+            nn.Linear(c_dim, f_dim),
+            nn.ReLU(),
+        )
+        self.gamma = nn.Linear(f_dim, f_dim)
+        self.beta = nn.Linear(f_dim, f_dim)
+        if self.use_ln:
+            self.ln = nn.LayerNorm(f_dim, elementwise_affine=False)
+        self.init_weight()
+
+    def init_weight(self):
+        nn.init.zeros_(self.gamma.weight)
+        nn.init.zeros_(self.beta.weight)
+        nn.init.ones_(self.gamma.bias)
+        nn.init.zeros_(self.beta.bias)
+
+    def forward(self, x, c):
+        if self.use_ln:
+            x = self.ln(x)
+        c = self.reduce(c)
+        gamma = self.gamma(c)
+        beta = self.beta(c)
+        out = gamma * x + beta
+
+        return out
+
+class SELayer(nn.Module):
+    ''' copy from SSR: https://github.com/PeidongLi/SSR/blob/9b17910e1f86c6f324583efd71045b3b8eb1819e/projects/mmdet3d_plugin/SSR/SSR_head.py#L86
+    something x_se as gate, to choose features in x
+    '''
+    def __init__(self, channels, act_layer=nn.ReLU, gate_layer=nn.Sigmoid):
+        super().__init__()
+        self.mlp_reduce = nn.Linear(channels, channels)
+        self.act1 = act_layer()
+        self.mlp_expand = nn.Linear(channels, channels)
+        self.gate = gate_layer()
+
+    def forward(self, x, x_se):
+        x_se = self.mlp_reduce(x_se)
+        x_se = self.act1(x_se)
+        x_se = self.mlp_expand(x_se)
+        return x * self.gate(x_se)
+
 @HEADS.register_module()
-class WaypointHead_IL_v2(BaseModule):
+class WaypointHead_IL_v3(BaseModule):
     def __init__(self,
                 num_proposals=6,
                 #MHA
@@ -52,13 +113,9 @@ class WaypointHead_IL_v2(BaseModule):
                 num_spatial_token=36,
                 num_tf_layers=2,
                 num_traj_modal=1,
-                model_uncertainty=False, # whether or not model uncertainty of the planned trajectory?
-                world_model_action_input='mean_action',
-                min_std_list=None,
-                max_std_list=None,
-                max_abs_rho=None,
-                debug_std=False,
-                cmd_usage='after_planning',
+                latent_decoder=None,
+                wp_attn=None,
+                n_scene_tokens=16,
                 **kwargs,
                 ):
         """
@@ -71,12 +128,20 @@ class WaypointHead_IL_v2(BaseModule):
         self.num_views = num_views
         self.num_proposals = num_proposals
         # self.view_query_feat = nn.Parameter(torch.randn(1, self.num_views, hidden_channel, self.num_proposals))
-        self.cmd_usage = cmd_usage
-        if cmd_usage == 'before_planning':
-            self.waypoint_query_feat = nn.Parameter(torch.randn(1, 3*self.num_proposals, hidden_channel))
-        elif cmd_usage == 'after_planning':
-            self.waypoint_query_feat = nn.Parameter(torch.randn(1, self.num_proposals, hidden_channel))
-        
+        self.waypoint_query_feat = nn.Parameter(torch.randn(1, 3*self.num_proposals, hidden_channel))
+        self.waypoint_pos_feat = nn.Parameter(torch.randn(1, 3*self.num_proposals, hidden_channel))
+        # bev_embed is huge, we can utilize the cmd to choose coresponding feature we need for planning
+        self.navi_embedding = nn.Parameter(torch.randn(1, 3, hidden_channel))
+
+        # compress bev_embed
+        self.n_scene_tokens = n_scene_tokens
+        self.navi_se = SELayer(hidden_channel)
+        self.tokenlearner = TokenLearnerV11(self.n_scene_tokens, hidden_channel * 2) # here * 2, because we also add position into the compression process, to let assist the compress process
+        self.latent_decoder = build_transformer_layer_sequence(latent_decoder)
+        if self.latent_decoder is not None:
+            for p in self.latent_decoder.parameters():
+                if p.dim() > 1:
+                    nn.init.xavier_uniform_(p) 
         # spatial attn
         # spatial_decoder_layer = nn.TransformerDecoderLayer(
         #     d_model=hidden_channel,
@@ -103,14 +168,19 @@ class WaypointHead_IL_v2(BaseModule):
             self.auto_regression_attention = nn.MultiheadAttention(embed_dim=hidden_channel, num_heads=8, batch_first=True)
 
         # wp_attn
-        wp_decoder_layer = nn.TransformerDecoderLayer(
-                d_model=hidden_channel,
-                nhead=num_heads,
-                dim_feedforward=dim_feedforward,
-                dropout=dropout,
-                batch_first=True,
-            )
-        self.wp_attn = nn.TransformerDecoder(wp_decoder_layer, 1) # input: Bz, num_token, d_model
+        # wp_decoder_layer = nn.TransformerDecoderLayer(
+        #         d_model=hidden_channel,
+        #         nhead=num_heads,
+        #         dim_feedforward=dim_feedforward,
+        #         dropout=dropout,
+        #         batch_first=True,
+        #     )
+        # self.wp_attn = nn.TransformerDecoder(wp_decoder_layer, 1) # input: Bz, num_token, d_model
+        self.wp_attn = build_transformer_layer_sequence(wp_attn)
+        if self.wp_attn is not None:
+            for p in self.wp_attn.parameters():
+                if p.dim() > 1:
+                    nn.init.xavier_uniform_(p)
 
         # world model
         wm_decoder_layer = nn.TransformerDecoderLayer(
@@ -122,32 +192,34 @@ class WaypointHead_IL_v2(BaseModule):
         )
         self._wm_decoder = nn.TransformerDecoder(wm_decoder_layer, num_tf_layers) 
 
-        self.action_aware_encoder = nn.Sequential(
-            nn.Linear(hidden_channel + 6*2, hidden_channel),
-            nn.ReLU(inplace=True),
-            nn.Linear(hidden_channel, hidden_channel),
-            nn.ReLU(inplace=True),
-            nn.Linear(hidden_channel, hidden_channel)
-        )
+        # self.action_aware_encoder = nn.Sequential(
+        #     nn.Linear(hidden_channel + 6*2, hidden_channel),
+        #     nn.ReLU(inplace=True),
+        #     nn.Linear(hidden_channel, hidden_channel),
+        #     nn.ReLU(inplace=True),
+        #     nn.Linear(hidden_channel, hidden_channel)
+        # )
 
-        self.wm_out = nn.Sequential(
-            nn.Linear(hidden_channel, hidden_channel),
-            nn.GELU(),
-            nn.Linear(hidden_channel, hidden_channel)
-        )
+        # self.wm_out = nn.Sequential(
+        #     nn.Linear(hidden_channel, hidden_channel),
+        #     nn.GELU(),
+        #     nn.Linear(hidden_channel, hidden_channel)
+        # )
 
+        self.action_aware_encoder = MLN(6*2) # 6 second * (x + y)
+        self.tokenfuser = TokenFuser(self.n_scene_tokens, hidden_channel)
         # initialize wm_out weights: small last-layer init
-        for m in self.wm_out.modules():
-            if isinstance(m, nn.Linear):
-                # standard init for first layer(s)
-                if m is self.wm_out[-1]:  # last linear
-                    nn.init.xavier_uniform_(m.weight, gain=0.01)
-                    if m.bias is not None:
-                        nn.init.constant_(m.bias, 0.)
-                else:
-                    nn.init.xavier_uniform_(m.weight, gain=nn.init.calculate_gain('relu'))
-                    if m.bias is not None:
-                        nn.init.constant_(m.bias, 0.)
+        # for m in self.wm_out.modules():
+        #     if isinstance(m, nn.Linear):
+        #         # standard init for first layer(s)
+        #         if m is self.wm_out[-1]:  # last linear
+        #             nn.init.xavier_uniform_(m.weight, gain=0.01)
+        #             if m.bias is not None:
+        #                 nn.init.constant_(m.bias, 0.)
+        #         else:
+        #             nn.init.xavier_uniform_(m.weight, gain=nn.init.calculate_gain('relu'))
+        #             if m.bias is not None:
+        #                 nn.init.constant_(m.bias, 0.)
 
         # loss
         self.loss_plan_reg = build_loss(dict(type='L1Loss', loss_weight=1.0))
@@ -155,45 +227,13 @@ class WaypointHead_IL_v2(BaseModule):
 
         # head
         self.num_traj_modal = num_traj_modal
-        self.model_uncertainty = model_uncertainty
-        self.world_model_action_input = world_model_action_input
-        self.min_std_list = min_std_list
-        self.max_std_list = max_std_list
-        self.max_abs_rho = max_abs_rho
-        self.debug_std = debug_std
-
-        if cmd_usage == 'after_planning':
-            self.waypoint_head = nn.Sequential(
-                    nn.Linear(hidden_channel, hidden_channel),
-                    nn.ReLU(inplace=True),
-                    nn.Linear(hidden_channel, hidden_channel),
-                    nn.ReLU(inplace=True),
-                    nn.Linear(hidden_channel, self.num_traj_modal* 2)
-                )
-            if self.model_uncertainty:
-                self.waypoint_cov_head = nn.Sequential(
-                        nn.Linear(hidden_channel, hidden_channel),
-                        nn.ReLU(inplace=True),
-                        nn.Linear(hidden_channel, hidden_channel),
-                        nn.ReLU(inplace=True),
-                        nn.Linear(hidden_channel, self.num_traj_modal)
-                    )
-        elif cmd_usage == 'before_planning':
-            self.waypoint_head = nn.Sequential(
-                    nn.Linear(hidden_channel, hidden_channel),
-                    nn.ReLU(inplace=True),
-                    nn.Linear(hidden_channel, hidden_channel),
-                    nn.ReLU(inplace=True),
-                    nn.Linear(hidden_channel, 2)
-                )
-            if self.model_uncertainty:
-                self.waypoint_cov_head = nn.Sequential(
-                        nn.Linear(hidden_channel, hidden_channel),
-                        nn.ReLU(inplace=True),
-                        nn.Linear(hidden_channel, hidden_channel),
-                        nn.ReLU(inplace=True),
-                        nn.Linear(hidden_channel, 1)
-                    )            
+        self.waypoint_head = nn.Sequential(
+                nn.Linear(hidden_channel, hidden_channel),
+                nn.ReLU(inplace=True),
+                nn.Linear(hidden_channel, hidden_channel),
+                nn.ReLU(inplace=True),
+                nn.Linear(hidden_channel, 2)
+            )
 
         # position embedding
         ##img pos embed
@@ -266,14 +306,36 @@ class WaypointHead_IL_v2(BaseModule):
     #     coords_position_embeding = self.position_encoder(pos_embed)
     #     return coords_position_embeding
     
-    def forward(self, latent_state, img_metas, ego_info=None, is_test=False):
+    def forward(self, bev_embed, bev_pos, img_metas, ego_info=None, is_test=False):
         # init
         losses = {}
         # Bz, num_views, num_channels, height, width = img_feat.shape
         # init_view_query_feat = self.view_query_feat.clone().repeat(Bz, 1, 1, 1).permute(0, 1, 3, 2)
 
-        B, num_tokens, hidden_dim = latent_state.shape
+        B, HW, hidden_dim = bev_embed.shape
         init_waypoint_query_feat = self.waypoint_query_feat.clone().repeat(B, 1, 1)
+        init_waypoint_pos_feat = self.waypoint_pos_feat.clone().repeat(B, 1, 1)
+
+        cmd_idx = img_metas[0]['ego_fut_cmd'].to(bev_embed.device)[0, 0]
+        navi_embed = self.navi_embedding[:,cmd_idx==1] # [B=1, 1, hidden]
+
+        bev_navi_embed = self.navi_se(bev_embed, navi_embed) # [B=1, HW, hidden]
+        bev_pos_embd = bev_pos.flatten(2).permute(0, 2, 1) # [B=1, HW, hidden] TODO, need check
+
+        bev_query = torch.cat((bev_navi_embed, bev_pos_embd), -1)
+
+        learned_latent_query, selected = self.tokenlearner(bev_query) # [B=1, n_token, hidden*2]
+
+        latent_query, latent_pos = torch.split(learned_latent_query, hidden_dim, dim=-1)
+
+        latent_query = self.latent_decoder( # receive shape [n_token, b, hidden]
+                query=latent_query.permute(1, 0, 2),
+                key=latent_query.permute(1, 0, 2),
+                value=latent_query.permute(1, 0, 2),
+                query_pos=latent_pos.permute(1, 0, 2),
+                key_pos=latent_pos.permute(1, 0, 2))
+        
+        latent_query = latent_query.permute(1, 0, 2) # [n_token, b, hidden] => [b, n_token, hidden]
 
         # # img pos emb
         # img_pos = self.img_position_embeding(img_feat, img_metas)
@@ -291,14 +353,21 @@ class WaypointHead_IL_v2(BaseModule):
         # spatial_view_feat = spatial_view_feat.reshape(batch_size, -1, num_channel)
 
         # predict wp
-        updated_waypoint_query_feat = self.wp_attn(init_waypoint_query_feat, latent_state) #final_view_feat.shape torch.Size([1, 1440, 256])
+        updated_waypoint_query_feat = self.wp_attn(
+            query=init_waypoint_query_feat.permute(1, 0, 2), # [3*6, b=1, hidden]
+            key=latent_query.permute(1, 0, 2),
+            value=latent_query.permute(1, 0, 2),
+            query_pos=init_waypoint_pos_feat.permute(1, 0, 2),
+            key_pos=latent_pos.permute(1, 0, 2)) #final_view_feat.shape torch.Size([1, 1440, 256])
+        
+        updated_waypoint_query_feat = updated_waypoint_query_feat.permute(1, 0, 2) # [n_token=3*6, b, hidden] => [b, n_token=3*6, hidden]
 
-        if self.cmd_usage == 'before_planning':
+        if self.num_traj_modal > 1:
             assert self.num_traj_modal == 3
-            bz, cmd_time, hidden_dim = updated_waypoint_query_feat.shape
-            updated_waypoint_query_feat = updated_waypoint_query_feat.reshape(bz, 3, 6, hidden_dim)
-            ego_cmd = img_metas[0]['ego_fut_cmd'].to(latent_state.device)[0, 0]
-            updated_waypoint_query_feat = updated_waypoint_query_feat[: ,ego_cmd == 1].squeeze(1) # [B, T, Hidden]
+            bz, modal_ts, hidden = updated_waypoint_query_feat.shape
+            updated_waypoint_query_feat = updated_waypoint_query_feat.reshape(bz, self.num_traj_modal, 6, hidden)
+            ego_cmd = img_metas[0]['ego_fut_cmd'].to(bev_embed.device)[0, 0]
+            updated_waypoint_query_feat = updated_waypoint_query_feat[: ,ego_cmd == 1].squeeze(1) # [b, n_token=6, hidden]
 
         if self.use_causal:
             # inv AR
@@ -314,93 +383,52 @@ class WaypointHead_IL_v2(BaseModule):
             )
 
         cur_waypoint = self.waypoint_head(updated_waypoint_query_feat)
-        if self.model_uncertainty:
-            cur_waypoint_cov = self.waypoint_cov_head(updated_waypoint_query_feat)
-
-        if self.cmd_usage == 'after_planning':
-            assert self.num_traj_modal == 3
-            bz, traj_len, _ = cur_waypoint.shape
-            cur_waypoint = cur_waypoint.reshape(bz, traj_len, self.num_traj_modal, 2)
-            ego_cmd = img_metas[0]['ego_fut_cmd'].to(latent_state.device)[0, 0]
-            cur_waypoint = cur_waypoint[: ,: ,ego_cmd == 1].squeeze(2)
-            if self.model_uncertainty:
-                cur_waypoint_cov = cur_waypoint_cov.reshape(bz, traj_len, self.num_traj_modal)
-                cur_waypoint_cov = cur_waypoint_cov[:, :, ego_cmd == 1].squeeze(2)
-
-        traj_len = cur_waypoint.size(1)
-        if self.model_uncertainty:
-            cur_waypoint_std = F.softplus(cur_waypoint_cov.squeeze(-1)) # in the condition of "before_planning", `cur_waypoint_cov`'s last dim is 1
-            # make sure min/max are tensors on the same device
-            min_std = torch.tensor(self.min_std_list, device=cur_waypoint_std.device).view(1, -1)
-            max_std = torch.tensor(self.max_std_list, device=cur_waypoint_std.device).view(1, -1)
-
-            cur_waypoint_std = torch.clamp(cur_waypoint_std, min=min_std, max=max_std)
-            Sigma = torch.eye(2, device=cur_waypoint_std.device).unsqueeze(0).unsqueeze(0).repeat(bz, traj_len, 1, 1) # [B, T, 2, 2]
-            Sigma = Sigma * (cur_waypoint_std**2).unsqueeze(-1).unsqueeze(-1)
-
-            # get the std log
-            if self.debug_std:
-                std_log = {}
-                for i in range(traj_len):
-                    std_log[f'debug_il_std_frame_{i}'] = cur_waypoint_std[:,i].mean()
-            
-            policy = MultivariateNormal(cur_waypoint, Sigma)
 
         # world model prediction
-        if self.world_model_action_input == 'mean_action':
-            wm_next_latent = self.wm_prediction(latent_state, cur_waypoint)
-        elif self.world_model_action_input == 'policy_sample':
-            assert self.model_uncertainty is True, 'world_model_action_input is `policy_sample`, while `model_uncertainty` is False'
-            wm_action_input = policy.rsample()
-            wm_next_latent = self.wm_prediction(latent_state, wm_action_input)
-        elif self.world_model_action_input == 'gt_action':
-            wm_next_latent = None
+        wm_next_bev_embed = self.wm_prediction(latent_query, cur_waypoint, bev_embed)
 
-        if self.model_uncertainty:
-            if not self.debug_std or is_test:
-                return policy, wm_next_latent
-            else:
-                return policy, wm_next_latent, std_log
-        else:
-            return cur_waypoint, wm_next_latent
+        return cur_waypoint, latent_query, wm_next_bev_embed
     
     def loss_reconstruction(self, 
-            reconstructed_latent_state,
-            observed_latent_state,
+            reconstructed_bev_embed,
+            bev_embed,
             ):
-        loss_rec = self.loss_plan_rec(reconstructed_latent_state, observed_latent_state)
+        loss_rec = self.loss_plan_rec(reconstructed_bev_embed, bev_embed)
         return loss_rec
     
-    def wm_prediction(self, latent_state, cur_waypoint):
+    def wm_prediction(self, latent_state, cur_waypoint, bev_embed):
         batch_size, num_tokens, num_channel = latent_state.shape
-        cur_waypoint = cur_waypoint.reshape(batch_size, 1, -1).repeat(1, num_tokens, 1)
-        cur_latent_state_with_ego = torch.cat([latent_state, cur_waypoint], dim=-1) 
-        action_aware_latent = self.action_aware_encoder(cur_latent_state_with_ego)
+        cur_waypoint = cur_waypoint.reshape(batch_size, 1, -1)#.repeat(1, num_tokens, 1)
+        # cur_latent_state_with_ego = torch.cat([latent_query, cur_waypoint], dim=-1) 
+        action_aware_latent = self.action_aware_encoder(latent_state, cur_waypoint)
 
         wm_next_latent = self._wm_decoder(action_aware_latent, action_aware_latent)
-        wm_next_latent = self.wm_out(wm_next_latent)
-        return wm_next_latent
+        wm_next_bev = self.tokenfuser(wm_next_latent, bev_embed) # [b=1, HW, hidden]
+        return wm_next_bev
 
-    def wm_group_prediction(self, latent_state, cur_waypoint_group):
+    def wm_group_prediction(self, latent_state, cur_waypoint_group, bev_embed):
         '''
         Designed for provide current state and trajectory sampled from a policy, predict the future state for each trajs in the group
         latent_state (Tensor): [B, num_of_token, hidden_dim]
         cur_waypoint_group (Tensor): [B, group_size, 6, 2]
+        bev_embed (Tensor): [B, HW, hidden]
         '''
         batch_size, num_tokens, hidden_dim = latent_state.shape
+        HW = bev_embed.size(1)
         group_size = cur_waypoint_group.size(1)
 
         latent_state_expand = latent_state.unsqueeze(1).expand(-1, group_size, -1, -1) # [B, group_size, num_of_token, hidden_dim]
         latent_state_flat = latent_state_expand.reshape(batch_size*group_size, num_tokens, hidden_dim) # [B*group_size, num_of_token, hidden_dim]
-        cur_waypoint_group = cur_waypoint_group.reshape(batch_size*group_size, 1, -1).expand(-1, num_tokens, -1) # [B*group_size, num_of_token, 12]
+        cur_waypoint_group = cur_waypoint_group.reshape(batch_size*group_size, 1, -1) # [B*group_size, 1, 12]                 # .expand(-1, num_tokens, -1) # [B*group_size, num_of_token, 12]
+        bev_embed_expand = bev_embed.unsqueeze(1).expand(-1, group_size, -1, -1).reshape(batch_size*group_size, HW, hidden_dim) # [B*group_size, HW, hidden]
 
-        cur_latent_state_with_ego = torch.cat([latent_state_flat, cur_waypoint_group], dim=-1) 
-        action_aware_latent = self.action_aware_encoder(cur_latent_state_with_ego) # [B*group_size, num_of_token, hidden_dim]
+        # cur_latent_state_with_ego = torch.cat([latent_state_flat, cur_waypoint_group], dim=-1) 
+        action_aware_latent = self.action_aware_encoder(latent_state_flat, cur_waypoint_group) # [B*group_size, num_of_token, hidden_dim]
 
         wm_next_latent = self._wm_decoder(action_aware_latent, action_aware_latent) # [B*group_size, num_of_token, hidden_dim]
-        wm_next_latent = wm_next_latent.reshape(batch_size, group_size, num_tokens, hidden_dim) # [B, group_size, num_of_token, hidden_dim]
-        wm_next_latent = self.wm_out(wm_next_latent)
-        return wm_next_latent
+        wm_next_bev = self.tokenfuser(wm_next_latent, bev_embed_expand) # [B*group_size, HW, hidden]
+        wm_next_bev = wm_next_bev.reshape(batch_size, group_size, HW, hidden_dim)
+        return wm_next_bev
 
     def loss_3d(self, 
             preds_ego_future_traj,
@@ -411,23 +439,8 @@ class WaypointHead_IL_v2(BaseModule):
         loss_waypoint = self.loss_plan_reg(preds_ego_future_traj, gt_ego_future_traj, gt_ego_future_traj_mask)
         return loss_waypoint
 
-    def loss_traj_uncertainty(self, 
-            policy,
-            gt_ego_future_traj,
-            gt_ego_future_traj_mask,
-            ego_info=None,
-            ):
-        '''
-        policy (Normal Distribution): [B, T, 2]
-        gt_ego_future_traj (Tensor): [B, T, 2]
-        gt_ego_future_traj_mask (Tensor): [B, T, 2]
-        '''
-        loss_waypoint = policy.log_prob(gt_ego_future_traj) # [B, T]
-        loss_waypoint = -(loss_waypoint * gt_ego_future_traj_mask).sum(dim=-1).mean()
-        return loss_waypoint
-
 @HEADS.register_module()
-class WaypointHead_RL_v2(BaseModule):
+class WaypointHead_RL_v3(BaseModule):
     def __init__(self,
                 num_proposals=6,
                 #MHA
@@ -458,7 +471,9 @@ class WaypointHead_RL_v2(BaseModule):
                 debug_std=False,
                 use_critic=False,
                 critic=None,
-                cmd_usage='after_planning',
+                latent_decoder=None,
+                wp_attn=None,
+                n_scene_tokens=16,
                 **kwargs,
                 ):
         """
@@ -471,12 +486,21 @@ class WaypointHead_RL_v2(BaseModule):
         self.num_views = num_views
         self.num_proposals = num_proposals
         # self.view_query_feat = nn.Parameter(torch.randn(1, self.num_views, hidden_channel, self.num_proposals))
-        self.cmd_usage = cmd_usage
-        if cmd_usage == 'before_planning':
-            self.waypoint_query_feat = nn.Parameter(torch.randn(1, 3*self.num_proposals, hidden_channel))
-        elif cmd_usage == 'after_planning':
-            self.waypoint_query_feat = nn.Parameter(torch.randn(1, self.num_proposals, hidden_channel))
-        
+        self.waypoint_query_feat = nn.Parameter(torch.randn(1, 3*self.num_proposals, hidden_channel))
+        self.waypoint_pos_feat = nn.Parameter(torch.randn(1, 3*self.num_proposals, hidden_channel))
+        # bev_embed is huge, we can utilize the cmd to choose coresponding feature we need for planning
+        self.navi_embedding = nn.Parameter(torch.randn(1, 3, hidden_channel))
+
+        # compress bev_embed
+        self.n_scene_tokens = n_scene_tokens
+        self.navi_se = SELayer(hidden_channel)
+        self.tokenlearner = TokenLearnerV11(self.n_scene_tokens, hidden_channel * 2) # here * 2, because we also add position into the compression process, to let assist the compress process
+        self.latent_decoder = build_transformer_layer_sequence(latent_decoder)
+        if self.latent_decoder is not None:
+            for p in self.latent_decoder.parameters():
+                if p.dim() > 1:
+                    nn.init.xavier_uniform_(p) 
+
         # # spatial attn
         # spatial_decoder_layer = nn.TransformerDecoderLayer(
         #     d_model=hidden_channel,
@@ -500,14 +524,19 @@ class WaypointHead_RL_v2(BaseModule):
         self.auto_regression_attention = nn.MultiheadAttention(embed_dim=hidden_channel, num_heads=8, batch_first=True)
 
         # wp_attn
-        wp_decoder_layer = nn.TransformerDecoderLayer(
-                d_model=hidden_channel,
-                nhead=num_heads,
-                dim_feedforward=dim_feedforward,
-                dropout=dropout,
-                batch_first=True,
-            )
-        self.wp_attn = nn.TransformerDecoder(wp_decoder_layer, 1) # input: Bz, num_token, d_model
+        # wp_decoder_layer = nn.TransformerDecoderLayer(
+        #         d_model=hidden_channel,
+        #         nhead=num_heads,
+        #         dim_feedforward=dim_feedforward,
+        #         dropout=dropout,
+        #         batch_first=True,
+        #     )
+        # self.wp_attn = nn.TransformerDecoder(wp_decoder_layer, 1) # input: Bz, num_token, d_model
+        self.wp_attn = build_transformer_layer_sequence(wp_attn)
+        if self.wp_attn is not None:
+            for p in self.wp_attn.parameters():
+                if p.dim() > 1:
+                    nn.init.xavier_uniform_(p)
 
         # world model
         if self.use_wm:
@@ -532,32 +561,16 @@ class WaypointHead_RL_v2(BaseModule):
 
         # head
         self.num_traj_modal = num_traj_modal
-        # self.simple_gaussian = simple_gaussian
+        self.waypoint_head = nn.Sequential(
+                nn.Linear(hidden_channel, hidden_channel),
+                nn.ReLU(inplace=True),
+                nn.Linear(hidden_channel, hidden_channel),
+                nn.ReLU(inplace=True),
+                nn.Linear(hidden_channel, 2)
+            )
 
-        if cmd_usage == 'after_planning':
-            self.waypoint_head = nn.Sequential(
-                    nn.Linear(hidden_channel, hidden_channel),
-                    nn.ReLU(inplace=True),
-                    nn.Linear(hidden_channel, hidden_channel),
-                    nn.ReLU(inplace=True),
-                    nn.Linear(hidden_channel, self.num_traj_modal* 2)
-                )
-            # only model std
-            self.waypoint_cov_head = nn.Sequential(
-                    nn.Linear(hidden_channel, hidden_channel),
-                    nn.ReLU(inplace=True),
-                    nn.Linear(hidden_channel, hidden_channel),
-                    nn.ReLU(inplace=True),
-                    nn.Linear(hidden_channel, self.num_traj_modal)
-                )
-        elif cmd_usage == 'before_planning':
-            self.waypoint_head = nn.Sequential(
-                    nn.Linear(hidden_channel, hidden_channel),
-                    nn.ReLU(inplace=True),
-                    nn.Linear(hidden_channel, hidden_channel),
-                    nn.ReLU(inplace=True),
-                    nn.Linear(hidden_channel, 2)
-                )
+        self.simple_gaussian = simple_gaussian
+        if simple_gaussian:
             # only model std
             self.waypoint_cov_head = nn.Sequential(
                     nn.Linear(hidden_channel, hidden_channel),
@@ -565,8 +578,16 @@ class WaypointHead_RL_v2(BaseModule):
                     nn.Linear(hidden_channel, hidden_channel),
                     nn.ReLU(inplace=True),
                     nn.Linear(hidden_channel, 1)
-                )            
-
+                )
+        else:
+            # model std_x, std_y, and rho
+            self.waypoint_cov_head = nn.Sequential(
+                    nn.Linear(hidden_channel, hidden_channel),
+                    nn.ReLU(inplace=True),
+                    nn.Linear(hidden_channel, hidden_channel),
+                    nn.ReLU(inplace=True),
+                    nn.Linear(hidden_channel, 3)
+                )
         
         self.min_std_list = min_std_list
         self.max_std_list = max_std_list
@@ -660,15 +681,37 @@ class WaypointHead_RL_v2(BaseModule):
     #     coords_position_embeding = self.position_encoder(pos_embed)
     #     return coords_position_embeding
     
-    def forward(self, latent_state, img_metas, ego_info=None, is_test=False):
+    def forward(self, bev_embed, bev_pos, img_metas, ego_info=None, is_test=False):
         # init
         losses = {}
         # Bz, num_views, num_channels, height, width = img_feat.shape
         # init_view_query_feat = self.view_query_feat.clone().repeat(Bz, 1, 1, 1).permute(0, 1, 3, 2)
 
-        B, num_tokens, hidden_dim = latent_state.shape
-
+        B, HW, hidden_dim = bev_embed.shape
         init_waypoint_query_feat = self.waypoint_query_feat.clone().repeat(B, 1, 1)
+        init_waypoint_pos_feat = self.waypoint_pos_feat.clone().repeat(B, 1, 1)
+
+        cmd_idx = img_metas[0]['ego_fut_cmd'].to(bev_embed.device)[0, 0]
+        navi_embed = self.navi_embedding[:,cmd_idx==1] # [B=1, 1, hidden]
+
+        bev_navi_embed = self.navi_se(bev_embed, navi_embed) # [B=1, HW, hidden]
+        bev_pos_embd = bev_pos.flatten(2).permute(0, 2, 1) # [B=1, HW, hidden] TODO, need check
+
+        bev_query = torch.cat((bev_navi_embed, bev_pos_embd), -1)
+
+        learned_latent_query, selected = self.tokenlearner(bev_query) # [B=1, n_token, hidden*2]
+
+        latent_query, latent_pos = torch.split(learned_latent_query, hidden_dim, dim=-1)
+
+        latent_query = self.latent_decoder( # receive shape [n_token, b, hidden]
+                query=latent_query.permute(1, 0, 2),
+                key=latent_query.permute(1, 0, 2),
+                value=latent_query.permute(1, 0, 2),
+                query_pos=latent_pos.permute(1, 0, 2),
+                key_pos=latent_pos.permute(1, 0, 2))
+        
+        latent_query = latent_query.permute(1, 0, 2) # [n_token, b, hidden] => [b, n_token, hidden]
+
 
         # img pos emb
         # img_pos = self.img_position_embeding(img_feat, img_metas)
@@ -686,15 +729,21 @@ class WaypointHead_RL_v2(BaseModule):
         # spatial_view_feat = spatial_view_feat.reshape(batch_size, -1, num_channel)
 
         # predict wp
-        updated_waypoint_query_feat = self.wp_attn(init_waypoint_query_feat, latent_state) #final_view_feat.shape torch.Size([1, 1440, 256])
+        updated_waypoint_query_feat = self.wp_attn(
+            query=init_waypoint_query_feat.permute(1, 0, 2), # [3*6, b=1, hidden]
+            key=latent_query.permute(1, 0, 2),
+            value=latent_query.permute(1, 0, 2),
+            query_pos=init_waypoint_pos_feat.permute(1, 0, 2),
+            key_pos=latent_pos.permute(1, 0, 2)) #final_view_feat.shape torch.Size([1, 1440, 256])
+        
+        updated_waypoint_query_feat = updated_waypoint_query_feat.permute(1, 0, 2) # [n_token=3*6, b, hidden] => [b, n_token=3*6, hidden]
 
-        if self.cmd_usage == 'before_planning':
+        if self.num_traj_modal > 1:
             assert self.num_traj_modal == 3
-            bz, cmd_time, hidden_dim = updated_waypoint_query_feat.shape
-            updated_waypoint_query_feat = updated_waypoint_query_feat.reshape(bz, 3, 6, hidden_dim)
-            ego_cmd = img_metas[0]['ego_fut_cmd'].to(latent_state.device)[0, 0]
-            updated_waypoint_query_feat = updated_waypoint_query_feat[: ,ego_cmd == 1].squeeze(1) # [B, T, Hidden]
-
+            bz, modal_ts, hidden = updated_waypoint_query_feat.shape
+            updated_waypoint_query_feat = updated_waypoint_query_feat.reshape(bz, self.num_traj_modal, 6, hidden)
+            ego_cmd = img_metas[0]['ego_fut_cmd'].to(bev_embed.device)[0, 0]
+            updated_waypoint_query_feat = updated_waypoint_query_feat[: ,ego_cmd == 1].squeeze(1) # [b, n_token=6, hidden]
 
         # inv AR
         if self.causal_mask.device == torch.device('cpu'):
@@ -709,50 +758,81 @@ class WaypointHead_RL_v2(BaseModule):
         )
 
         cur_waypoint = self.waypoint_head(updated_waypoint_query_feat)
-        cur_waypoint_cov = self.waypoint_cov_head(updated_waypoint_query_feat)
+        cur_waypoint_cov = self.waypoint_cov_head(updated_waypoint_query_feat).squeeze(-1)
+        bz, traj_len, _ = cur_waypoint.shape
+        # if self.num_traj_modal > 1:
+        #     assert self.num_traj_modal == 3
+        #     bz, traj_len, _ = cur_waypoint.shape
+        #     cur_waypoint = cur_waypoint.reshape(bz, traj_len, self.num_traj_modal, 2)
+        #     if self.simple_gaussian:
+        #         cur_waypoint_cov = cur_waypoint_cov.reshape(bz, traj_len, self.num_traj_modal)
+        #     else:
+        #         cur_waypoint_cov = cur_waypoint_cov.reshape(bz, traj_len, self.num_traj_modal, 3)
+        #     ego_cmd = img_metas[0]['ego_fut_cmd'].to(latent_state.device)[0, 0]
+        #     cur_waypoint = cur_waypoint[: ,: ,ego_cmd == 1].squeeze(2)
+        #     cur_waypoint_cov = cur_waypoint_cov[:, :, ego_cmd == 1].squeeze(2)
 
-        if self.cmd_usage == 'after_planning':
-            assert self.num_traj_modal == 3
-            bz, traj_len, _ = cur_waypoint.shape
-            cur_waypoint = cur_waypoint.reshape(bz, traj_len, self.num_traj_modal, 2)
-            cur_waypoint_cov = cur_waypoint_cov.reshape(bz, traj_len, self.num_traj_modal)
-            ego_cmd = img_metas[0]['ego_fut_cmd'].to(latent_state.device)[0, 0]
-            cur_waypoint = cur_waypoint[: ,: ,ego_cmd == 1].squeeze(2)
-            cur_waypoint_cov = cur_waypoint_cov[:, :, ego_cmd == 1].squeeze(2)
+        if self.simple_gaussian:
+            # [B, T]
+            cur_waypoint_std = F.softplus(cur_waypoint_cov)
+            # make sure min/max are tensors on the same device
+            min_std = torch.tensor(self.min_std_list, device=cur_waypoint_std.device).view(1, -1)
+            max_std = torch.tensor(self.max_std_list, device=cur_waypoint_std.device).view(1, -1)
 
-        traj_len = cur_waypoint.size(1)
-        # [B, T]
-        cur_waypoint_std = F.softplus(cur_waypoint_cov.squeeze(-1))
-        # make sure min/max are tensors on the same device
-        min_std = torch.tensor(self.min_std_list, device=cur_waypoint_std.device).view(1, -1)
-        max_std = torch.tensor(self.max_std_list, device=cur_waypoint_std.device).view(1, -1)
+            cur_waypoint_std = torch.clamp(cur_waypoint_std, min=min_std, max=max_std)
+            Sigma = torch.eye(2, device=cur_waypoint_std.device).unsqueeze(0).unsqueeze(0).repeat(bz, traj_len, 1, 1) # [B, T, 2, 2]
+            Sigma = Sigma * (cur_waypoint_std**2).unsqueeze(-1).unsqueeze(-1)
 
-        cur_waypoint_std = torch.clamp(cur_waypoint_std, min=min_std, max=max_std)
-        Sigma = torch.eye(2, device=cur_waypoint_std.device).unsqueeze(0).unsqueeze(0).repeat(bz, traj_len, 1, 1) # [B, T, 2, 2]
-        Sigma = Sigma * (cur_waypoint_std**2).unsqueeze(-1).unsqueeze(-1)
+            # get the std log
+            if self.debug_std:
+                std_log = {}
+                for i in range(traj_len):
+                    std_log[f'debug_std_frame_{i}'] = cur_waypoint_std[:,i].mean()
+        else:
+            # [B, T, 3]
+            cur_waypoint_std_x = F.softplus(cur_waypoint_cov[:,:,0]) # [B, T]
+            cur_waypoint_std_y = F.softplus(cur_waypoint_cov[:,:,1]) # [B, T]
+            cur_waypoint_rho = torch.tanh(cur_waypoint_cov[:,:,2])*self.max_abs_rho  # [B, T]
 
-        # get the std log
-        if self.debug_std:
-            std_log = {}
-            for i in range(traj_len):
-                std_log[f'debug_rl_std_frame_{i}'] = cur_waypoint_std[:,i].mean()
+            min_std = torch.tensor(self.min_std_list, device=cur_waypoint_std_x.device).view(1, -1)
+            max_std = torch.tensor(self.max_std_list, device=cur_waypoint_std_x.device).view(1, -1)
+
+            cur_waypoint_std_x = torch.clamp(cur_waypoint_std_x, min=min_std, max=max_std)
+            cur_waypoint_std_y = torch.clamp(cur_waypoint_std_y, min=min_std, max=max_std)
+
+            Sigma = torch.zeros((bz, traj_len, 2, 2), device=cur_waypoint_std_x.device)
+            Sigma[:,:,0,0] = cur_waypoint_std_x**2
+            Sigma[:,:,1,1] = cur_waypoint_std_y**2
+            Sigma[:,:,0,1] = cur_waypoint_std_x * cur_waypoint_std_y * cur_waypoint_rho
+            Sigma[:,:,1,0] = cur_waypoint_std_x * cur_waypoint_std_y * cur_waypoint_rho
+
+            jitter = 1e-4 * torch.eye(2, device=Sigma.device).unsqueeze(0).unsqueeze(0)
+            Sigma = Sigma + jitter
+
+            # get the std log
+            if self.debug_std:
+                std_log = {}
+                for i in range(traj_len):
+                    std_log[f'debug_std_x_frame_{i}'] = cur_waypoint_std_x[:,i].mean()
+                    std_log[f'debug_std_y_frame_{i}'] = cur_waypoint_std_y[:,i].mean()
+                    std_log[f'debug_rho_frame_{i}'] = cur_waypoint_rho[:,i].mean()
 
         # world model prediction
         if self.use_wm:
-            wm_next_latent = self.wm_prediction(latent_state, cur_waypoint)
+            wm_next_latent = self.wm_prediction(latent_query, cur_waypoint)
 
         policy = MultivariateNormal(cur_waypoint, Sigma)
 
         if not self.debug_std or is_test:
             if self.use_wm:
-                return policy, wm_next_latent
+                return policy, latent_query, wm_next_latent
             else:
-                return policy
+                return policy, latent_query
         else:
             if self.use_wm:
-                return policy, wm_next_latent, std_log
+                return policy, latent_query, wm_next_latent, std_log
             else:
-                return policy, std_log
+                return policy, latent_query, std_log
     
     def loss_reconstruction(self, 
             reconstructed_latent_state,
