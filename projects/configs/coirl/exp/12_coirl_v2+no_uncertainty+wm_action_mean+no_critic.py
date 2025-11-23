@@ -1,6 +1,6 @@
 _base_ = [
-    '../datasets/custom_nus-3d.py',
-    '../_base_/default_runtime.py'
+    '../../datasets/custom_nus-3d.py',
+    '../../_base_/default_runtime.py'
 ]
 #
 plugin = True
@@ -340,7 +340,7 @@ model = dict(
         use_wm=True,
         num_traj_modal=3,
         model_uncertainty=False,
-        weight_loss_waypoint_uncertainty=1e-2,
+        weight_loss_waypoint_uncertainty=0,
         world_model_action_input='mean_action', # 'mean_action', 'policy_sample', 'gt_action'
         min_std_list=[0.05, 0.05, 0.05, 0.05, 0.05, 0.05],
         max_std_list=[5, 5, 5, 5, 5, 5],
@@ -364,14 +364,14 @@ model = dict(
         max_std_list=[5, 5, 5, 5, 5, 5],
         max_abs_rho=0.75,
         debug_std=True,
-        use_critic=True,
+        use_critic=False,
         critic=dict(
             type='Critic',
             hidden_dim=256,
             num_heads=8,
             dropout=0.1,
             n_layer=2,
-            gamma=0.5,
+            gamma=0.1,
             ema_tau=0.9,
         ),
         cmd_usage='after_planning', # 'after_planning' or 'before_planning'

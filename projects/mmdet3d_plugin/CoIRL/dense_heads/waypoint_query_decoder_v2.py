@@ -53,6 +53,7 @@ class WaypointHead_IL_v2(BaseModule):
                 num_tf_layers=2,
                 num_traj_modal=1,
                 model_uncertainty=False, # whether or not model uncertainty of the planned trajectory?
+                weight_loss_waypoint_uncertainty=1e-2,
                 world_model_action_input='mean_action',
                 min_std_list=None,
                 max_std_list=None,
@@ -156,6 +157,7 @@ class WaypointHead_IL_v2(BaseModule):
         # head
         self.num_traj_modal = num_traj_modal
         self.model_uncertainty = model_uncertainty
+        self.weight_loss_waypoint_uncertainty = weight_loss_waypoint_uncertainty
         self.world_model_action_input = world_model_action_input
         self.min_std_list = min_std_list
         self.max_std_list = max_std_list
@@ -424,7 +426,7 @@ class WaypointHead_IL_v2(BaseModule):
         '''
         loss_waypoint = policy.log_prob(gt_ego_future_traj) # [B, T]
         loss_waypoint = -(loss_waypoint * gt_ego_future_traj_mask).sum(dim=-1).mean()
-        return loss_waypoint
+        return loss_waypoint * self.weight_loss_waypoint_uncertainty
 
 @HEADS.register_module()
 class WaypointHead_RL_v2(BaseModule):

@@ -200,7 +200,8 @@ class CoIRL_v2(VAD):
                 prev_bev = self.pts_bbox_head(
                     img_feats, img_metas, prev_bev, only_bev=True)
             self.train()
-            self.actor_rl_head.refer_critic.eval()
+            if self.use_critic:
+                self.actor_rl_head.refer_critic.eval()
             return prev_bev
         
     def obtain_current_bev_and_pred_fut_state(self, img, img_metas, prev_bev):
@@ -217,10 +218,13 @@ class CoIRL_v2(VAD):
         # ===IL Actor=== #
         if self.actor_il_model_uncertainty:
             preds_ego_future_policy, pred_fut_state, _ = self.actor_il_head(cur_state, img_metas)
+            preds_ego_future_traj = preds_ego_future_policy.mean
             gt_ego_fut_trajs = img_metas[0]['ego_fut_trajs'].to(img_feats[0].device)
             gt_ego_fut_masks = img_metas[0]['ego_fut_masks'].squeeze(0).unsqueeze(-1).to(img_feats[0].device)
-            loss_waypoint = self.actor_il_head.loss_traj_uncertainty(preds_ego_future_policy, gt_ego_fut_trajs, gt_ego_fut_masks)
+            loss_waypoint_uncertainty = self.actor_il_head.loss_traj_uncertainty(preds_ego_future_policy, gt_ego_fut_trajs, gt_ego_fut_masks)
+            loss_waypoint = self.actor_il_head.loss_3d(preds_ego_future_traj, gt_ego_fut_trajs, gt_ego_fut_masks)
             losses.update({
+                f'prev_frame_loss_waypoint_uncertainty_0': loss_waypoint_uncertainty,
                 f'prev_frame_loss_waypoint_0': loss_waypoint
             })
         else:
@@ -391,12 +395,22 @@ class CoIRL_v2(VAD):
             else:
                 preds_ego_future_il_policy, pred_fut_state = self.actor_il_head(cur_state, img_metas, ego_info)
 
+            preds_ego_future_traj = preds_ego_future_il_policy.mean
+
             # waypoint loss
-            loss_waypoint = self.actor_il_head.loss_traj_uncertainty(preds_ego_future_il_policy,
+            loss_waypoint_uncertainty = self.actor_il_head.loss_traj_uncertainty(preds_ego_future_il_policy,
                                                 ego_fut_trajs.squeeze(1),
                                                 ego_fut_masks.squeeze(0).squeeze(0).unsqueeze(-1),
                                                 )
-            losses.update({'loss_waypoint': loss_waypoint})
+            loss_waypoint = self.actor_il_head.loss_3d(preds_ego_future_traj,
+                                                ego_fut_trajs.squeeze(1),
+                                                ego_fut_masks.squeeze(0).squeeze(0).unsqueeze(-1),
+                                                )
+            
+            losses.update({
+                'loss_waypoint_uncertainty': loss_waypoint_uncertainty,
+                'loss_waypoint': loss_waypoint,
+                })
         else:
             preds_ego_future_traj, pred_fut_state = self.actor_il_head(cur_state, img_metas, ego_info)
 
