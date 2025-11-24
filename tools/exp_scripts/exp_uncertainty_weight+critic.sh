@@ -12,7 +12,7 @@ cd ~/projects/CoIRL-AD
 ./tools/nusc_my_train.sh coirl/exp/10_coirl_v2+no_uncertainty+wm_action_gt+no_critic 8 coirl_v2_rebuttal_exp/10_no_uncertainty+wm_action_gt+no_critic
 sleep 10
 cd ~/projects/CoIRL-AD
-./tools/nusc_my_train.sh coirl/exp/11_coirl_v2+no_uncertainty+wm_action_gt+critic_gamma_0.1 8 coirl_v2_rebuttal_exp/10_no_uncertainty+wm_action_gt+critic_gamma_0.1
+./tools/nusc_my_train.sh coirl/exp/11_coirl_v2+no_uncertainty+wm_action_gt+critic_gamma_0.1 8 coirl_v2_rebuttal_exp/11_no_uncertainty+wm_action_gt+critic_gamma_0.1
 sleep 10
 cd ~/projects/CoIRL-AD
 ./tools/nusc_my_train.sh coirl/exp/12_coirl_v2+no_uncertainty+wm_action_mean+no_critic 8 coirl_v2_rebuttal_exp/12_no_uncertainty+wm_action_mean+no_critic
