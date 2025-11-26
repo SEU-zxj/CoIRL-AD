@@ -101,29 +101,34 @@ class CompetitiveLearningMachine:
             tensor /= dist.get_world_size()
         return tensor
 
-    def competition(self):
+    def competition(self, warmup_end_flag):
         il_score = self.all_reduce_tensor(self.il_score_sum.clone())
         rl_score = self.all_reduce_tensor(self.rl_score_sum.clone())        
 
         score_diff = abs(il_score - rl_score)
-        if score_diff.item() >= self.max_threshold:
-            # hard param cover
-            if rl_score.item() < il_score.item():
+        if warmup_end_flag:
+            if score_diff.item() >= self.max_threshold:
+                # hard param cover
+                if rl_score.item() < il_score.item():
+                    self.swap_knowledge(worse_actor=self.rl_actor, better_actor=self.il_actor, ratio=1.0)
+                    self.n_il_win += 1
+                else:
+                    self.swap_knowledge(worse_actor=self.il_actor, better_actor=self.rl_actor, ratio=1.0)
+                    self.n_rl_win += 1
+            elif score_diff.item() <= self.min_threshold:
+                pass
+            else:
+                # soft interpolation
+                if rl_score.item() < il_score.item():
+                    self.swap_knowledge(worse_actor=self.rl_actor, better_actor=self.il_actor, ratio=self.swap_percentage)
+                    self.n_il_win += 1
+                else:
+                    self.swap_knowledge(worse_actor=self.il_actor, better_actor=self.rl_actor, ratio=self.swap_percentage)
+                    self.n_rl_win += 1
+        else:
+            # in warmup stage, no matter what happened, we just let the IL Actor win
                 self.swap_knowledge(worse_actor=self.rl_actor, better_actor=self.il_actor, ratio=1.0)
                 self.n_il_win += 1
-            else:
-                self.swap_knowledge(worse_actor=self.il_actor, better_actor=self.rl_actor, ratio=1.0)
-                self.n_rl_win += 1
-        elif score_diff.item() <= self.min_threshold:
-            pass
-        else:
-            # soft interpolation
-            if rl_score.item() < il_score.item():
-                self.swap_knowledge(worse_actor=self.rl_actor, better_actor=self.il_actor, ratio=self.swap_percentage)
-                self.n_il_win += 1
-            else:
-                self.swap_knowledge(worse_actor=self.il_actor, better_actor=self.rl_actor, ratio=self.swap_percentage)
-                self.n_rl_win += 1
         
         ret_dict = {
             'il_score_sum': il_score,
@@ -166,8 +171,8 @@ class CompetitiveLearningMachine:
 
         warmup_end_flag = (not self.competition_warmup_flag) or (self.competition_warmup_flag and self.iter > self.competition_warmup_threshold)
 
-        if (self.iter % self.competition_batch_size == 0) and warmup_end_flag:
-            ret_dict = self.competition()
+        if (self.iter % self.competition_batch_size == 0):
+            ret_dict = self.competition(warmup_end_flag)
             ret_dict.update({
                 'il_score': il_score,
                 'rl_score': rl_score,
