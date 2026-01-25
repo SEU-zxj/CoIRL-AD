@@ -2,8 +2,8 @@ import json
 import xlsxwriter
 
 # Specify the input and output file paths here
-input_log_file = "/opt/nvme0/zhengxj/projects/CoIRL-AD/work_dirs/coirl_v2_rebuttal_exp/1_baseline/20251122_114918.log.json"  # <-- Change to your log file path
-output_excel_file = "/opt/nvme0/zhengxj/projects/CoIRL-AD/work_dirs/coirl_v2_rebuttal_exp/1_baseline/eval_metrics.xlsx" # <-- Change to your output Excel file path
+input_log_file = "/opt/nvme0/zhengxj/projects/CoIRL-AD/work_dirs/coirl_v2_rebuttal_exp/rebuttal_final_2+no_uncertainty+wm_action_mean+cmd_usage_before_planning+critic_gamma_0.1+perception_loss/20251129_164433.log.json"  # <-- Change to your log file path
+output_excel_file = "/opt/nvme0/zhengxj/projects/CoIRL-AD/work_dirs/coirl_v2_rebuttal_exp/rebuttal_final_2+no_uncertainty+wm_action_mean+cmd_usage_before_planning+critic_gamma_0.1+perception_loss/eval_metrics.xlsx" # <-- Change to your output Excel file path
 
 # Keys to extract and order in Excel
 wanted_keys_dict = {
