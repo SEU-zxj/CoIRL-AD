@@ -300,6 +300,7 @@ class CoIRL(VAD):
             sample_traj_group = sample_traj_group.permute(1,0,2,3) # [B, G, T, 2]
 
             mode_traj = preds_ego_future_policy.mean # [B, T, 2]
+            losses['debug_il_rl_mode_traj_l2'] = torch.norm((preds_ego_future_traj - mode_traj).detach(), p=2, dim=-1).mean()
             traj_len = mode_traj.size(1)
 
             traj_group = mode_traj.unsqueeze(1).unsqueeze(2).repeat(1, traj_len, self.group_size, 1, 1) # [B, T, G, T, 2]
@@ -310,6 +311,7 @@ class CoIRL(VAD):
             # compute value
             cur_value = self.pts_bbox_head_rl.critic(cur_state_rl.detach()) # [B,]
             cur_value = cur_value.unsqueeze(1).unsqueeze(2).expand(B, traj_len, self.group_size) # [B, T, G]
+            losses['debug_critic_cur_value_mean'] = cur_value.detach().mean()
 
             # pred fut_state
             traj_group = traj_group.reshape(B, traj_len*self.group_size, traj_len, 2)
@@ -318,6 +320,7 @@ class CoIRL(VAD):
             with torch.no_grad():
                 pred_fut_value = self.pts_bbox_head_rl.refer_critic(pred_fut_state_rl.detach()) # [B, T*G]
                 pred_fut_value = pred_fut_value.reshape(B, traj_len, self.group_size) # [B, T, G]
+            losses['debug_critic_pred_fut_value_mean'] = pred_fut_value.detach().mean()
             
             # compute actor_loss and reward
             traj_group = traj_group.reshape(B, traj_len, self.group_size, traj_len, 2)
