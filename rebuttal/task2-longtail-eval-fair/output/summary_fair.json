@@ -1,0 +1,75 @@
+{
+  "config": {
+    "merge_mode": "union",
+    "l2_thresholds": {
+      "plan_L2_1s_gt": 0.3,
+      "plan_L2_2s_gt": 0.6,
+      "plan_L2_3s_gt": 1.0
+    },
+    "col_threshold": "plan_obj_box_col_3s > 0",
+    "valid_gate": "fut_valid_flag == True",
+    "common_tokens": 6019
+  },
+  "subset_sizes": {
+    "longtail_l2": 2247,
+    "longtail_col": 124
+  },
+  "source_breakdown": {
+    "longtail_l2": {
+      "coirl_only": 614,
+      "law_only": 807,
+      "both": 826
+    },
+    "longtail_col": {
+      "coirl_only": 33,
+      "law_only": 46,
+      "both": 45
+    }
+  },
+  "metrics": {
+    "longtail_l2": {
+      "coirl": {
+        "num_samples": 2247,
+        "plan_L2_1s": 0.45333768889997245,
+        "plan_L2_2s": 0.923544825854225,
+        "plan_L2_3s": 1.5272786364118471,
+        "plan_obj_box_col_1s": 0.0006675567423230974,
+        "plan_obj_box_col_2s": 0.0014463729417000446,
+        "plan_obj_box_col_3s": 0.005340454057953227,
+        "fut_valid_flag": 1.0
+      },
+      "law": {
+        "num_samples": 2247,
+        "plan_L2_1s": 0.5159972381408817,
+        "plan_L2_2s": 1.0054082225173633,
+        "plan_L2_3s": 1.6001198959251277,
+        "plan_obj_box_col_1s": 0.0011125945705384957,
+        "plan_obj_box_col_2s": 0.0017801513128615932,
+        "plan_obj_box_col_3s": 0.007417297318186503,
+        "fut_valid_flag": 1.0
+      }
+    },
+    "longtail_col": {
+      "coirl": {
+        "num_samples": 124,
+        "plan_L2_1s": 0.37180557345028875,
+        "plan_L2_2s": 0.8407952221365825,
+        "plan_L2_3s": 1.5073572630212912,
+        "plan_obj_box_col_1s": 0.024193548387096774,
+        "plan_obj_box_col_2s": 0.04233870967741935,
+        "plan_obj_box_col_3s": 0.15188172387499962,
+        "fut_valid_flag": 1.0
+      },
+      "law": {
+        "num_samples": 124,
+        "plan_L2_1s": 0.40302459473699154,
+        "plan_L2_2s": 0.9427749527197692,
+        "plan_L2_3s": 1.6728625405699975,
+        "plan_obj_box_col_1s": 0.036290322580645164,
+        "plan_obj_box_col_2s": 0.05040322580645161,
+        "plan_obj_box_col_3s": 0.188172047777522,
+        "fut_valid_flag": 1.0
+      }
+    }
+  }
+}
