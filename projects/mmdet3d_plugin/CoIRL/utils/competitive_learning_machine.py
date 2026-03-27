@@ -4,7 +4,7 @@ import torch.distributed as dist
 from projects.mmdet3d_plugin.CoIRL.utils import CollsionConstrain, ImitationConstrain
 
 class CompetitiveLearningMachine:
-    def __init__(self, il_actor, rl_actor, use_critic, max_threshold=10.0, min_threshold=1.0, competition_batch_size=100, swap_percentage=0.5):
+    def __init__(self, il_actor, rl_actor, use_critic, max_threshold=10.0, min_threshold=1.0, competition_batch_size=100, swap_percentage=0.5, disable_competition=None):
         '''
         we will sum the score of il_actor and rl_actor for `competition_batch_size` data.
         if abs(il_score - rl_score) >= max_threshold, directly cover the params of actor perform worse with the better one
@@ -20,6 +20,10 @@ class CompetitiveLearningMachine:
         self.min_threshold = min_threshold
         self.competition_batch_size = competition_batch_size
         self.swap_percentage = swap_percentage
+        # Tri-state behavior:
+        # - True: disable actor competition/swap logic
+        # - False or None: keep original behavior
+        self.disable_competition = disable_competition
 
         self.collision_scorer = CollsionConstrain()
         self.imitation_scorer = ImitationConstrain()
@@ -134,7 +138,7 @@ class CompetitiveLearningMachine:
         if self.use_critic:
             self.set_refer_critic()
 
-        if self.iter % self.competition_batch_size == 0:
+        if (self.iter % self.competition_batch_size == 0) and (self.disable_competition is not True):
             ret_dict = self.competition()
             ret_dict.update({
                 'il_score': il_score,

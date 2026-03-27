@@ -43,6 +43,7 @@ class CoIRL(VAD):
                 results_path=None,
                 pts_bbox_head_rl=None,
                 rl_actor_use_bc=None,
+                disable_competition=None,
                 **kwargs,
                  ):
         super().__init__( **kwargs)
@@ -77,12 +78,19 @@ class CoIRL(VAD):
         self.use_critic = self.pts_bbox_head_rl.use_critic
         self.rl_actor_use_bc = rl_actor_use_bc
         self.eval_method = eval_method
+        self.disable_competition = disable_competition
         
         self.save_results_flag = save_results_flag
         self.results_path = results_path
         if save_results_flag:
             self.results_return = {} # key is sample_idx, value is a dict with keys: ['scene_token', eval_metrics, 'ego_pred_traj']
-        self.CLM = CompetitiveLearningMachine(il_actor=self.pts_bbox_head, rl_actor=self.pts_bbox_head_rl, use_critic=self.use_critic, min_threshold=compete_min_threshold)
+        self.CLM = CompetitiveLearningMachine(
+            il_actor=self.pts_bbox_head,
+            rl_actor=self.pts_bbox_head_rl,
+            use_critic=self.use_critic,
+            min_threshold=compete_min_threshold,
+            disable_competition=self.disable_competition,
+        )
         
 
     def extract_img_feat(self, img, img_metas, len_queue=None):
