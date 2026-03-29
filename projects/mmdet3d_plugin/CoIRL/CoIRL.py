@@ -44,6 +44,11 @@ class CoIRL(VAD):
                 pts_bbox_head_rl=None,
                 rl_actor_use_bc=None,
                 disable_competition=None,
+                rl_method='GRPO',
+                cql_critic=None,
+                cql_alpha=1.0,
+                cql_num_action_samples=8,
+                cql_random_action_scale=2.0,
                 **kwargs,
                  ):
         super().__init__( **kwargs)
@@ -79,6 +84,34 @@ class CoIRL(VAD):
         self.rl_actor_use_bc = rl_actor_use_bc
         self.eval_method = eval_method
         self.disable_competition = disable_competition
+        self.rl_method = rl_method.upper()
+
+        self.cql_critic = None
+        self.cql_target_critic = None
+        self.cql_alpha = cql_alpha
+        self.cql_num_action_samples = cql_num_action_samples
+        self.cql_random_action_scale = cql_random_action_scale
+        self.cql_gamma = 0.99
+
+        if self.rl_method == 'CQL':
+            if cql_critic is None:
+                cql_critic = dict(
+                    type='CQLSingleQCritic',
+                    hidden_dim=hidden_channel,
+                    traj_len=6,
+                    num_heads=8,
+                    dropout=0.1,
+                    n_layer=2,
+                    gamma=0.99,
+                    ema_tau=0.9,
+                )
+            self.cql_critic = builder.build_backbone(cql_critic)
+            # Single-Q with EMA target for stable bootstrapping (not double-Q).
+            self.cql_target_critic = copy.deepcopy(self.cql_critic)
+            for p in self.cql_target_critic.parameters():
+                p.requires_grad = False
+            self.cql_target_critic.eval()
+            self.cql_gamma = self.cql_critic.gamma
         
         self.save_results_flag = save_results_flag
         self.results_path = results_path
@@ -144,13 +177,14 @@ class CoIRL(VAD):
         img_feats = self.extract_img_feat(img, img_metas, len_queue=len_queue)
         return img_feats
 
-    def obtain_history_feat(self, imgs_queue, img_metas_list, is_test=False):
+    def obtain_history_feat(self, imgs_queue, img_metas_list, is_test=False, return_transition=False):
         """Obtain history BEV features iteratively.
         """
         bs, len_queue, num_cams, C, H, W = imgs_queue.shape
         imgs_queue = imgs_queue.reshape(bs*len_queue, num_cams, C, H, W)
         img_feats_list = self.extract_feat(img=imgs_queue, len_queue=len_queue)
         losses = {}
+        transition_inputs = None
         for i in range(len_queue):
             img_metas = [each[i] for each in img_metas_list]
             img_feats = [each_scale[:, i] for each_scale in img_feats_list][0]
@@ -178,6 +212,25 @@ class CoIRL(VAD):
                     losses.update({
                         f'prev_frame_loss_rl_bc_{i}': loss_rl_bc * self.rl_traj_gauss_nll_weight
                     })
+
+                if return_transition and (i == len_queue - 1):
+                    if self.debug_std:
+                        policy_t, state_t, _ = self.pts_bbox_head_rl(img_feats, img_metas)
+                    else:
+                        policy_t, state_t = self.pts_bbox_head_rl(img_feats, img_metas)
+
+                    # Transition tuple for CQL: (s_t, a_t, s_{t+1}).
+                    # policy_t: distribution over a_t, state_t: [B, N, H],
+                    # action_t: [B, T, 2], action_mask_t: [B, T, 1].
+                    transition_inputs = dict(
+                        policy_t=policy_t,
+                        state_t=state_t,
+                        action_t=gt_ego_fut_trajs,
+                        action_mask_t=gt_ego_fut_masks,
+                    )
+
+        if return_transition:
+            return losses, pred_img_feat, transition_inputs
         return losses, pred_img_feat
 
     @force_fp32(apply_to=('img','points','prev_bev'))
@@ -217,8 +270,16 @@ class CoIRL(VAD):
         prev_img_metas = copy.deepcopy(img_metas)
 
         self.pts_bbox_head.prev_view_feat = None
+        transition_inputs = None
         if len_queue > 1:
-            prev_frame_losses, pred_img_feat = self.obtain_history_feat(prev_img, prev_img_metas)  
+            if self.rl_method == 'CQL':
+                prev_frame_losses, pred_img_feat, transition_inputs = self.obtain_history_feat(
+                    prev_img,
+                    prev_img_metas,
+                    return_transition=True,
+                )
+            else:
+                prev_frame_losses, pred_img_feat = self.obtain_history_feat(prev_img, prev_img_metas)
         else:
             prev_frame_losses = {}
 
@@ -235,6 +296,7 @@ class CoIRL(VAD):
                                         gt_labels=gt_labels,
                                         gt_bboxes=gt_bboxes,
                                         pred_img_feat=pred_img_feat,
+                                        transition_inputs=transition_inputs,
                                         ego_his_trajs=ego_his_trajs, ego_fut_trajs=ego_fut_trajs,
                                         ego_fut_masks=ego_fut_masks, ego_fut_cmd=ego_fut_cmd,
                                         ego_lcf_feat=ego_lcf_feat, gt_attr_labels=gt_attr_labels,
@@ -253,6 +315,7 @@ class CoIRL(VAD):
                           gt_labels=None,
                           gt_bboxes=None,
                           pred_img_feat=None,
+                          transition_inputs=None,
                           ego_his_trajs=None,
                           ego_fut_trajs=None,
                           ego_fut_masks=None,
@@ -302,7 +365,14 @@ class CoIRL(VAD):
         else:
             preds_ego_future_policy, cur_state_rl = self.pts_bbox_head_rl(img_feats, img_metas, ego_info)
 
-        if self.use_critic:
+        if self.rl_method == 'CQL':
+            cql_losses = self.compute_cql_losses(
+                policy_tp1=preds_ego_future_policy,
+                state_tp1=cur_state_rl,
+                transition_inputs=transition_inputs,
+            )
+            losses.update(cql_losses)
+        elif self.use_critic:
             # sample trajs and construct step aware trajectories
             sample_traj_group = preds_ego_future_policy.rsample([self.group_size]) # [G, B, T, 2]
             sample_traj_group = sample_traj_group.permute(1,0,2,3) # [B, G, T, 2]
@@ -360,6 +430,122 @@ class CoIRL(VAD):
         losses.update(competition_info)
 
         return losses
+
+    def _masked_mean(self, value, valid_mask):
+        """Masked mean for trajectory-level tensors.
+
+        value: [B]
+        valid_mask: [B] bool/float
+        """
+        value = value.reshape(-1)
+        valid_mask = valid_mask.reshape(-1).float()
+        denom = valid_mask.sum()
+        if denom <= 0:
+            # Keep graph connectivity even when no valid sample exists on this rank.
+            # This avoids DDP "unused parameter" reduction errors while producing zero loss.
+            return (value * 0.0).sum()
+        return (value * valid_mask).sum() / (denom + 1e-6)
+
+    def _build_valid_mask(self, action_mask):
+        if action_mask.dim() == 3 and action_mask.size(1) == 1:
+            action_mask = action_mask[:, 0]
+        if action_mask.dim() == 3 and action_mask.size(-1) == 1:
+            action_mask = action_mask[..., 0]
+        if action_mask.dim() == 1:
+            action_mask = action_mask.unsqueeze(0)
+
+        if action_mask.dim() != 2:
+            raise ValueError(f'Expected action_mask with shape [B, T] or [B, T, 1], got {tuple(action_mask.shape)}')
+
+        # action_mask expected shape: [B, T] or [B, T, 1]
+        step_valid = action_mask > 0  # [B, T]
+
+        # Strict filtering: a sample contributes only if all horizon steps are valid.
+        valid_traj = step_valid.all(dim=-1)  # [B]
+        return valid_traj
+
+    def compute_cql_losses(self, policy_tp1, state_tp1, transition_inputs):
+        if transition_inputs is None:
+            zero = state_tp1.new_zeros(())
+            return {
+                'loss_rl': zero,
+                'loss_critic': zero,
+                'cql_td_loss': zero,
+                'cql_penalty': zero,
+                'cql_q_data_mean': zero,
+                'cql_q_policy_mean': zero,
+                'cql_gap': zero,
+                'cql_actor_loss': zero,
+                'cql_valid_ratio': zero,
+            }
+
+        policy_t = transition_inputs['policy_t']
+        state_t = transition_inputs['state_t'].detach()  # [B, N, H]
+        state_tp1 = state_tp1.detach()  # [B, N, H]
+
+        action_t = transition_inputs['action_t']
+        if action_t.dim() == 4 and action_t.size(1) == 1:
+            action_t = action_t[:, 0]
+        if action_t.dim() != 3:
+            raise ValueError(f'Expected action_t shape [B, T, 2], got {tuple(action_t.shape)}')
+        action_t = action_t.detach()  # [B, T, 2]
+
+        action_mask_t = transition_inputs['action_mask_t']
+        if action_mask_t.dim() == 3 and action_mask_t.size(1) == 1:
+            action_mask_t = action_mask_t[:, 0]
+        action_mask_t = action_mask_t.detach()
+
+        valid_traj = self._build_valid_mask(action_mask_t)  # [B]
+        valid_ratio = valid_traj.float().mean()
+
+        with torch.no_grad():
+            next_action = policy_tp1.rsample().detach()  # [B, T, 2]
+            q_next = self.cql_target_critic(state_tp1, next_action)  # [B]
+            reward = torch.ones_like(q_next)  # [B], constant-reward baseline
+            td_target = reward + self.cql_gamma * q_next  # [B]
+
+        q_data = self.cql_critic(state_t, action_t)  # [B]
+        td_loss = self._masked_mean((q_data - td_target) ** 2, valid_traj)
+
+        k = self.cql_num_action_samples
+        sampled_actions = policy_t.rsample([k]).permute(1, 0, 2, 3).detach()  # [B, K, T, 2]
+        random_actions = (2 * torch.rand_like(sampled_actions) - 1) * self.cql_random_action_scale
+
+        q_policy = self.cql_critic(state_t, sampled_actions)  # [B, K]
+        q_random = self.cql_critic(state_t, random_actions)  # [B, K]
+        q_cat = torch.cat([q_policy, q_random], dim=1)
+        cql_lse = torch.logsumexp(q_cat, dim=1)  # [B]
+        cql_penalty = self._masked_mean(cql_lse - q_data, valid_traj)
+
+        critic_loss = td_loss + self.cql_alpha * cql_penalty
+
+        sampled_action_actor = policy_t.rsample()  # [B, T, 2]
+        log_prob_actor = policy_t.log_prob(sampled_action_actor)
+        # Aggregate log-prob over trajectory dimensions to obtain log pi(a_traj | s): [B].
+        if log_prob_actor.dim() == 3:  # [B, T, 2]
+            log_prob_actor = log_prob_actor.sum(dim=-1).sum(dim=-1)
+        elif log_prob_actor.dim() == 2:  # [B, T]
+            log_prob_actor = log_prob_actor.sum(dim=-1)
+        elif log_prob_actor.dim() != 1:
+            raise ValueError(f'Unexpected log_prob shape: {tuple(log_prob_actor.shape)}')
+
+        with torch.no_grad():
+            q_actor = self.cql_critic(state_t, sampled_action_actor.detach())  # [B]
+        actor_loss = self._masked_mean(-(q_actor * log_prob_actor), valid_traj)
+
+        self.cql_target_critic.set_weight_ema(self.cql_critic)
+
+        return {
+            'loss_rl': actor_loss * self.rl_loss_weight,
+            'loss_critic': critic_loss * self.rl_loss_weight,
+            'cql_td_loss': td_loss.detach(),
+            'cql_penalty': cql_penalty.detach(),
+            'cql_q_data_mean': self._masked_mean(q_data.detach(), valid_traj),
+            'cql_q_policy_mean': self._masked_mean(q_policy.detach().mean(dim=1), valid_traj),
+            'cql_gap': self._masked_mean((q_policy.detach().mean(dim=1) - q_data.detach()), valid_traj),
+            'cql_actor_loss': actor_loss.detach(),
+            'cql_valid_ratio': valid_ratio.detach(),
+        }
 
     def forward_test(
         self,
