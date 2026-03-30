@@ -768,3 +768,73 @@ class WaypointHead_RL(BaseModule):
         reward_sum = reward.sum(dim=-1) # [B, T, G]
         loss_critic = self.critic.compute_critic_loss(reward_sum.detach(), cur_value, pred_fut_value.detach())
         return loss_critic
+
+    def compute_ppo_losses(
+        self,
+        policy,
+        sampled_traj,
+        gt_ego_fut_trajs,
+        gt_bboxes_3d,
+        gt_attr_labels,
+        fut_valid_flag,
+        ego_fut_masks,
+        cur_value,
+        pred_fut_value,
+        gamma=0.2,
+        adv_clip=5.0,
+    ):
+        """PPO-lite losses with single trajectory action.
+
+        - No group sampling and no step-aware construction.
+        - No advantage normalization, only clipping.
+        - Trajectory [T, 2] is treated as one action.
+        """
+        bs, traj_len, _ = policy.mean.shape
+        assert bs == 1, "now only support batch_size = 1"
+
+        ego_fut_masks = ego_fut_masks.squeeze(0).squeeze(0)  # [B, T]
+        gt_ego_fut_trajs = gt_ego_fut_trajs.squeeze(0)  # [B, T, 2]
+
+        sampled_traj_cum = sampled_traj.cumsum(dim=-2)
+        gt_traj_cum = gt_ego_fut_trajs.cumsum(dim=-2).detach()
+
+        no_colision_score = self.collision_scorer(
+            sampled_traj_cum.detach(),
+            gt_traj_cum,
+            gt_bboxes_3d,
+            gt_attr_labels,
+            fut_valid_flag,
+        )  # [B, T]
+        dac_score = self.drivable_area_compliance_op(sampled_traj_cum.detach())  # [B]
+        imitation_score = self.imitation_scorer(
+            sampled_traj_cum.detach(),
+            gt_traj_cum,
+            ego_fut_masks,
+        )  # [B, T]
+
+        reward = no_colision_score * dac_score.unsqueeze(-1) * imitation_score
+        # Some scorers may return an extra singleton dim (e.g., [B, 1, T]);
+        # reduce to scalar trajectory reward per sample.
+        reward_sum = reward.reshape(bs, -1).sum(dim=-1)  # [B]
+
+        cur_value = cur_value.reshape(bs, -1).mean(dim=-1)  # [B]
+        pred_fut_value = pred_fut_value.reshape(bs, -1).mean(dim=-1)  # [B]
+
+        target_value = reward_sum + gamma * pred_fut_value  # [B]
+        advantage = target_value - cur_value  # [B]
+        clipped_advantage = torch.clamp(advantage, min=-adv_clip, max=adv_clip)  # [B]
+
+        log_prob = policy.log_prob(sampled_traj)
+        if log_prob.dim() > 1:
+            log_prob = log_prob.reshape(bs, -1).sum(dim=-1)  # [B]
+
+        loss_actor = -(clipped_advantage.detach() * log_prob).mean()
+        loss_critic = F.mse_loss(cur_value, target_value.detach())
+
+        log_dict = {
+            'ppo_value_cur_mean': cur_value.detach().mean(),
+            'ppo_value_next_mean': pred_fut_value.detach().mean(),
+            'ppo_advantage_mean': advantage.detach().mean(),
+        }
+
+        return loss_actor, loss_critic, log_dict

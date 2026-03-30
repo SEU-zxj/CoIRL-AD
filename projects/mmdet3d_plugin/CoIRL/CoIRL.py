@@ -49,6 +49,8 @@ class CoIRL(VAD):
                 cql_alpha=1.0,
                 cql_num_action_samples=8,
                 cql_random_action_scale=2.0,
+                ppo_gamma=0.2,
+                ppo_adv_clip=5.0,
                 **kwargs,
                  ):
         super().__init__( **kwargs)
@@ -92,6 +94,8 @@ class CoIRL(VAD):
         self.cql_num_action_samples = cql_num_action_samples
         self.cql_random_action_scale = cql_random_action_scale
         self.cql_gamma = 0.99
+        self.ppo_gamma = ppo_gamma
+        self.ppo_adv_clip = ppo_adv_clip
 
         if self.rl_method == 'CQL':
             if cql_critic is None:
@@ -372,6 +376,35 @@ class CoIRL(VAD):
                 transition_inputs=transition_inputs,
             )
             losses.update(cql_losses)
+        elif self.rl_method == 'PPO':
+            sampled_traj = preds_ego_future_policy.rsample()  # [B, T, 2]
+            mode_traj = preds_ego_future_policy.mean  # [B, T, 2]
+            losses['debug_il_rl_mode_traj_l2'] = torch.norm((preds_ego_future_traj - mode_traj).detach(), p=2, dim=-1).mean()
+
+            cur_value = self.pts_bbox_head_rl.critic(cur_state_rl.detach())  # [B]
+            with torch.no_grad():
+                pred_fut_state_rl = self.pts_bbox_head.wm_prediction(cur_state_rl.detach(), sampled_traj.detach())  # [B, n_token, H]
+                pred_fut_value = self.pts_bbox_head_rl.refer_critic(pred_fut_state_rl.detach())  # [B]
+
+            loss_actor, loss_critic, ppo_logs = self.pts_bbox_head_rl.compute_ppo_losses(
+                policy=preds_ego_future_policy,
+                sampled_traj=sampled_traj,
+                gt_ego_fut_trajs=ego_fut_trajs,
+                gt_bboxes_3d=gt_bboxes_3d,
+                gt_attr_labels=gt_attr_labels,
+                fut_valid_flag=fut_valid_flag,
+                ego_fut_masks=ego_fut_masks,
+                cur_value=cur_value,
+                pred_fut_value=pred_fut_value,
+                gamma=self.ppo_gamma,
+                adv_clip=self.ppo_adv_clip,
+            )
+
+            losses.update({
+                'loss_rl': loss_actor * self.rl_loss_weight,
+                'loss_critic': loss_critic * self.rl_loss_weight,
+            })
+            losses.update(ppo_logs)
         elif self.use_critic:
             # sample trajs and construct step aware trajectories
             sample_traj_group = preds_ego_future_policy.rsample([self.group_size]) # [G, B, T, 2]
